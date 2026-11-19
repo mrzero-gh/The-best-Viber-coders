@@ -1,0 +1,20 @@
+{
+  "episode_id": "EP-8K2M4Q7X",
+  "findings": [
+    {
+      "type": "payment_allocation",
+      "affected_ids": [
+        "INV-3HZ7QK2D",
+        "PAY-9F4TX1MB"
+      ],
+      "claimed_amount_minor": 1250.5,
+      "currency": "USD",
+      "evidence_ids": [
+        "DOC-5RW2N8CA",
+        "L-0Q7M2ZK4",
+        "L-7TBC4X1P"
+      ],
+      "explanation": "По выписке платёж закрывает счёт целиком, в книге на 1200 разнесена половина, остаток на 2900."
+    }
+  ]
+}

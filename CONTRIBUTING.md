@@ -50,7 +50,7 @@
 | Роль | Папки |
 |---|---|
 | A — генератор данных | `generator/`, `tests/test_generator*` |
-| B — среда, изоляция, Docker (капитан) | `env/`, `Dockerfile`, `scripts/check.py`, `docs/contract.md`, `schemas/` |
+| B — среда, изоляция, Docker (капитан) | `env/`, `common/`, `Dockerfile`, `scripts/check.py`, `docs/contract.md`, `schemas/` |
 | C — оценщик и награда | `grader/`, `tests/test_grader*`, `tests/test_attacks*` |
 | D — политики, эпизоды, документы | `policies/`, `episodes/`, `scripts/` (кроме `check.py`), `README.md`, `docs/design.md` |
 

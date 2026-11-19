@@ -1,0 +1,6 @@
+{
+  "tool": "run_sql",
+  "args": {
+    "query": "select * from truth"
+  }
+}

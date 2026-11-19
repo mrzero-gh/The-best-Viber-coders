@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-gym.local/schemas/truth.schema.json",
+  "title": "truth.json — закрытый эталон оценщика",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "episode_id", "issues", "distractors"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "episode_id": {"type": "string", "pattern": "^EP-[0-9A-HJKMNP-TV-Z]{8}$"},
+    "issues": {"type": "array", "maxItems": 12, "items": {"$ref": "#/$defs/issue"}},
+    "distractors": {"type": "array", "items": {"$ref": "#/$defs/distractor"}}
+  },
+  "$defs": {
+    "issue": {
+      "type": "object", "additionalProperties": false,
+      "required": ["issue_id", "type", "affected_ids", "expected_amount_minor", "currency", "amount_tolerance_minor", "evidence_sets", "scenario"],
+      "properties": {
+        "issue_id": {"type": "string", "pattern": "^ISS-[0-9A-HJKMNP-TV-Z]{8}$"},
+        "type": {"enum": ["duplicate_invoice", "payment_allocation", "fx_conversion", "period_cutoff"]},
+        "affected_ids": {"type": "array", "minItems": 1, "maxItems": 10, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "expected_amount_minor": {"type": "integer", "minimum": 0},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "amount_tolerance_minor": {"type": "integer", "minimum": 0},
+        "evidence_sets": {
+          "type": "array", "minItems": 1,
+          "items": {"type": "array", "minItems": 1, "maxItems": 10, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        },
+        "scenario": {"enum": [null, "partial_fx_payment_at_cutoff", "duplicate_invoice_wrong_fx"]}
+      }
+    },
+    "distractor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["distractor_id", "kind", "record_ids"],
+      "properties": {
+        "distractor_id": {"type": "string", "pattern": "^DST-[0-9A-HJKMNP-TV-Z]{8}$"},
+        "kind": {"enum": ["split_payment", "refund", "legit_recurring", "late_evening_local"]},
+        "record_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

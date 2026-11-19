@@ -1,0 +1,7 @@
+{
+  "tool": "get_record",
+  "args": {
+    "table": "fx",
+    "id": "FX:2026-09-30:USD:KZT"
+  }
+}

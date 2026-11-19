@@ -1,0 +1,13 @@
+{
+  "doc_id": "DOC-5RW2N8CA",
+  "payment_id": "PAY-9F4TX1MB",
+  "timestamp": "2026-10-01T00:20:00+05:00",
+  "currency": "USD",
+  "amount_minor": 250000,
+  "invoice_refs": [
+    {
+      "invoice_id": "INV-3HZ7QK2D",
+      "amount_minor": 250000
+    }
+  ]
+}

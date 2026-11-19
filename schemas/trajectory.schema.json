@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-gym.local/schemas/trajectory.schema.json",
+  "title": "Строка trajectories.jsonl",
+  "description": "Ровно поля из кейса. step = 0 — результат reset (action = null, reward = 0).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["episode_id", "step", "action", "observation", "reward", "terminated", "truncated"],
+  "properties": {
+    "episode_id": {"type": "string", "pattern": "^EP-[0-9A-HJKMNP-TV-Z]{8}$"},
+    "step": {"type": "integer", "minimum": 0, "maximum": 100},
+    "action": {"type": ["object", "null"]},
+    "observation": {"type": "object"},
+    "reward": {"type": "number", "minimum": -1, "maximum": 1},
+    "terminated": {"type": "boolean"},
+    "truncated": {"type": "boolean"}
+  }
+}

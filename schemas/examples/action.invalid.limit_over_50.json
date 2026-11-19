@@ -1,0 +1,7 @@
+{
+  "tool": "list_records",
+  "args": {
+    "table": "ledger",
+    "limit": 51
+  }
+}

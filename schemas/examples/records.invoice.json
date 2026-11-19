@@ -1,0 +1,17 @@
+{
+  "doc_id": "DOC-7C2K9W4M",
+  "invoice_id": "INV-3HZ7QK2D",
+  "entity_id": "E-4NV7Q2HC",
+  "issued_at": "2026-09-02T12:00:00+05:00",
+  "due_at": "2026-10-02T12:00:00+05:00",
+  "currency": "USD",
+  "total_minor": 250000,
+  "line_items": [
+    {
+      "description": "Ноутбуки, партия сентябрь 2026",
+      "quantity": 2,
+      "unit_price_minor": 125000,
+      "amount_minor": 250000
+    }
+  ]
+}

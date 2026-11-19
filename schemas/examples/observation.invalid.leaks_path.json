@@ -1,0 +1,13 @@
+{
+  "kind": "error",
+  "tool": "get_record",
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "x"
+  },
+  "steps_used": 8,
+  "steps_remaining": 92,
+  "debug": {
+    "truth_path": "episodes/train/EP-8K2M4Q7X/private/truth.json"
+  }
+}

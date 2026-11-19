@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "fx": {
+    "rate_date": "document_local_date",
+    "direction": "1 source_currency = rate target_currency",
+    "target_currency": "KZT"
+  },
+  "period": {
+    "timezone": "+05:00",
+    "start_inclusive": true,
+    "end_exclusive": true
+  },
+  "rounding": {
+    "mode": "ROUND_HALF_EVEN",
+    "apply": "after_conversion_to_target_exponent"
+  },
+  "amount_tolerance_minor": 1
+}

@@ -1,0 +1,10 @@
+{
+  "config_version": "train-v1",
+  "mode": "train",
+  "size": {
+    "ledger_rows": [
+      50,
+      100
+    ]
+  }
+}
