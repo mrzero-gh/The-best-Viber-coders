@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-gym.local/schemas/findings.schema.json",
+  "title": "findings.json — выводы агента для submit",
+  "description": "Неверная структура -> награда -1. Целочисленность claimed_amount_minor оценщик проверяет отдельно: JSON Schema считает 1.0 целым.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["episode_id", "findings"],
+  "properties": {
+    "episode_id": {"type": "string", "pattern": "^EP-[0-9A-HJKMNP-TV-Z]{8}$"},
+    "findings": {"type": "array", "maxItems": 30, "items": {"$ref": "#/$defs/finding"}}
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "affected_ids", "claimed_amount_minor", "currency", "evidence_ids", "explanation"],
+      "properties": {
+        "type": {"enum": ["duplicate_invoice", "payment_allocation", "fx_conversion", "period_cutoff"]},
+        "affected_ids": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+        "claimed_amount_minor": {"type": "integer"},
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "evidence_ids": {"type": "array", "maxItems": 10, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+        "explanation": {"type": "string", "maxLength": 1000}
+      }
+    }
+  }
+}

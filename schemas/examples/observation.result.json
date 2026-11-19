@@ -1,0 +1,10 @@
+{
+  "kind": "result",
+  "tool": "calculator",
+  "result": {
+    "expression": "(250000 - 125000) * 470.15 / 100",
+    "value": "587687.5"
+  },
+  "steps_used": 7,
+  "steps_remaining": 93
+}

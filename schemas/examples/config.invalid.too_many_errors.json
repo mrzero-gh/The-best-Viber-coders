@@ -1,0 +1,5 @@
+{
+  "config_version": "train-v1",
+  "mode": "train",
+  "max_errors": 20
+}

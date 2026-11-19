@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-gym.local/schemas/config.schema.json",
+  "title": "Конфиг генератора и среды для reset(seed, config)",
+  "description": "Каждый тип ошибки настраивается отдельно. Пропущенные поля берут значения по умолчанию. Проверка min <= max в диапазонах — в генераторе.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["config_version", "mode"],
+  "properties": {
+    "config_version": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "mode": {"enum": ["train", "eval"]},
+    "company": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "archetype": {"enum": ["importer", "saas", "distributor"]},
+        "base_currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "timezone": {"type": "string", "pattern": "^[+-][0-9]{2}:[0-9]{2}$"},
+        "foreign_currencies": {"type": "array", "maxItems": 6, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z]{3}$"}}
+      }
+    },
+    "size": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "ledger_rows": {"$ref": "#/$defs/ledger_range"},
+        "documents": {"$ref": "#/$defs/document_range"}
+      }
+    },
+    "errors": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "duplicate_invoice": {"$ref": "#/$defs/toggle"},
+        "payment_allocation": {"$ref": "#/$defs/toggle"},
+        "fx_conversion": {"$ref": "#/$defs/toggle"},
+        "period_cutoff": {"$ref": "#/$defs/toggle"}
+      }
+    },
+    "interactions": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "partial_fx_payment_at_cutoff": {"$ref": "#/$defs/toggle"},
+        "duplicate_invoice_wrong_fx": {"$ref": "#/$defs/toggle"}
+      }
+    },
+    "distractors": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "split_payment": {"$ref": "#/$defs/toggle"},
+        "refund": {"$ref": "#/$defs/toggle"},
+        "legit_recurring": {"$ref": "#/$defs/toggle"},
+        "late_evening_local": {"$ref": "#/$defs/toggle"}
+      }
+    },
+    "clean": {"type": "boolean", "description": "true — 0 ошибок, отвлекающие случаи остаются"},
+    "max_errors": {"type": "integer", "minimum": 0, "maximum": 12}
+  },
+  "$defs": {
+    "ledger_range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 200, "maximum": 2000}},
+    "document_range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 20, "maximum": 200}},
+    "count_range": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 0, "maximum": 12}},
+    "toggle": {
+      "type": "object", "additionalProperties": false, "required": ["enabled"],
+      "properties": {"enabled": {"type": "boolean"}, "count": {"$ref": "#/$defs/count_range"}}
+    }
+  }
+}

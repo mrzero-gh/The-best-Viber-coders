@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-gym.local/schemas/records.schema.json",
+  "title": "Строки открытых таблиц эпизода и policy.json",
+  "description": "Описывает строку после разбора файла (CSV-поля уже приведены к типам, пустое поле -> null).",
+  "oneOf": [
+    {"$ref": "#/$defs/ledger_row"},
+    {"$ref": "#/$defs/invoice"},
+    {"$ref": "#/$defs/payment"},
+    {"$ref": "#/$defs/fx_rate"},
+    {"$ref": "#/$defs/policy"}
+  ],
+  "$defs": {
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2}$"},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+    "doc_id": {"type": "string", "pattern": "^DOC-[0-9A-HJKMNP-TV-Z]{8}$"},
+    "invoice_id": {"type": "string", "pattern": "^INV-[0-9A-HJKMNP-TV-Z]{8}$"},
+    "payment_id": {"type": "string", "pattern": "^PAY-[0-9A-HJKMNP-TV-Z]{8}$"},
+    "entity_id": {"type": "string", "pattern": "^E-[0-9A-HJKMNP-TV-Z]{8}$"},
+    "ledger_row": {
+      "type": "object", "additionalProperties": false,
+      "required": ["row_id", "timestamp", "account", "debit_minor", "credit_minor", "currency", "entity_id", "invoice_id", "payment_id"],
+      "properties": {
+        "row_id": {"type": "string", "pattern": "^L-[0-9A-HJKMNP-TV-Z]{8}$"},
+        "timestamp": {"$ref": "#/$defs/timestamp"},
+        "account": {"enum": ["1010", "1200", "2900", "4000", "7900"]},
+        "debit_minor": {"type": "integer", "minimum": 0},
+        "credit_minor": {"type": "integer", "minimum": 0},
+        "currency": {"$ref": "#/$defs/currency"},
+        "entity_id": {"oneOf": [{"$ref": "#/$defs/entity_id"}, {"type": "null"}]},
+        "invoice_id": {"oneOf": [{"$ref": "#/$defs/invoice_id"}, {"type": "null"}]},
+        "payment_id": {"oneOf": [{"$ref": "#/$defs/payment_id"}, {"type": "null"}]}
+      }
+    },
+    "line_item": {
+      "type": "object", "additionalProperties": false,
+      "required": ["description", "quantity", "unit_price_minor", "amount_minor"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1, "maxLength": 200},
+        "quantity": {"type": "integer", "minimum": 1},
+        "unit_price_minor": {"type": "integer", "minimum": 0},
+        "amount_minor": {"type": "integer", "minimum": 0}
+      }
+    },
+    "invoice": {
+      "type": "object", "additionalProperties": false,
+      "required": ["doc_id", "invoice_id", "entity_id", "issued_at", "due_at", "currency", "total_minor", "line_items"],
+      "properties": {
+        "doc_id": {"$ref": "#/$defs/doc_id"},
+        "invoice_id": {"$ref": "#/$defs/invoice_id"},
+        "entity_id": {"$ref": "#/$defs/entity_id"},
+        "issued_at": {"$ref": "#/$defs/timestamp"},
+        "due_at": {"$ref": "#/$defs/timestamp"},
+        "currency": {"$ref": "#/$defs/currency"},
+        "total_minor": {"type": "integer", "minimum": 0},
+        "line_items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/line_item"}}
+      }
+    },
+    "invoice_ref": {
+      "type": "object", "additionalProperties": false, "required": ["invoice_id", "amount_minor"],
+      "properties": {"invoice_id": {"$ref": "#/$defs/invoice_id"}, "amount_minor": {"type": "integer", "minimum": 0}}
+    },
+    "payment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["doc_id", "payment_id", "timestamp", "currency", "amount_minor", "invoice_refs"],
+      "properties": {
+        "doc_id": {"$ref": "#/$defs/doc_id"},
+        "payment_id": {"$ref": "#/$defs/payment_id"},
+        "timestamp": {"$ref": "#/$defs/timestamp"},
+        "currency": {"$ref": "#/$defs/currency"},
+        "amount_minor": {"type": "integer", "description": "> 0 поступление, < 0 возврат"},
+        "invoice_refs": {"type": "array", "items": {"$ref": "#/$defs/invoice_ref"}}
+      }
+    },
+    "fx_rate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["date", "source_currency", "target_currency", "rate"],
+      "properties": {
+        "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "source_currency": {"$ref": "#/$defs/currency"},
+        "target_currency": {"$ref": "#/$defs/currency"},
+        "rate": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+$"}
+      }
+    },
+    "policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "fx", "period", "rounding", "amount_tolerance_minor"],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "fx": {
+          "type": "object", "additionalProperties": false,
+          "required": ["rate_date", "direction", "target_currency"],
+          "properties": {
+            "rate_date": {"const": "document_local_date"},
+            "direction": {"const": "1 source_currency = rate target_currency"},
+            "target_currency": {"$ref": "#/$defs/currency"}
+          }
+        },
+        "period": {
+          "type": "object", "additionalProperties": false,
+          "required": ["timezone", "start_inclusive", "end_exclusive"],
+          "properties": {
+            "timezone": {"type": "string", "pattern": "^[+-][0-9]{2}:[0-9]{2}$"},
+            "start_inclusive": {"const": true},
+            "end_exclusive": {"const": true}
+          }
+        },
+        "rounding": {
+          "type": "object", "additionalProperties": false, "required": ["mode", "apply"],
+          "properties": {"mode": {"enum": ["ROUND_HALF_EVEN"]}, "apply": {"const": "after_conversion_to_target_exponent"}}
+        },
+        "amount_tolerance_minor": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

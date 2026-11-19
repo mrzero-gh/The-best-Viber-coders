@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-gym.local/schemas/action.schema.json",
+  "title": "Действие агента для step(action)",
+  "description": "Невалидное действие не роняет среду: она возвращает ошибку INVALID_ACTION и расходует шаг. findings внутри submit проверяет оценщик по findings.schema.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tool", "args"],
+  "properties": {
+    "tool": {"enum": ["list_records", "get_record", "get_document", "calculator", "submit"]},
+    "args": {"type": "object"}
+  },
+  "oneOf": [
+    {"properties": {"tool": {"const": "list_records"}, "args": {"$ref": "#/$defs/list_records"}}},
+    {"properties": {"tool": {"const": "get_record"}, "args": {"$ref": "#/$defs/get_record"}}},
+    {"properties": {"tool": {"const": "get_document"}, "args": {"$ref": "#/$defs/get_document"}}},
+    {"properties": {"tool": {"const": "calculator"}, "args": {"$ref": "#/$defs/calculator"}}},
+    {"properties": {"tool": {"const": "submit"}, "args": {"$ref": "#/$defs/submit"}}}
+  ],
+  "$defs": {
+    "table": {"enum": ["ledger", "invoices", "payments", "fx"]},
+    "list_records": {
+      "type": "object", "additionalProperties": false, "required": ["table"],
+      "properties": {
+        "table": {"$ref": "#/$defs/table"},
+        "cursor": {"type": ["string", "null"], "maxLength": 64},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 50}
+      }
+    },
+    "get_record": {
+      "type": "object", "additionalProperties": false, "required": ["table", "id"],
+      "properties": {"table": {"$ref": "#/$defs/table"}, "id": {"type": "string", "minLength": 1, "maxLength": 64}}
+    },
+    "get_document": {
+      "type": "object", "additionalProperties": false, "required": ["doc_id"],
+      "properties": {"doc_id": {"type": "string", "minLength": 1, "maxLength": 64}}
+    },
+    "calculator": {
+      "type": "object", "additionalProperties": false, "required": ["expression"],
+      "properties": {"expression": {"type": "string", "minLength": 1, "maxLength": 200}}
+    },
+    "submit": {
+      "type": "object", "additionalProperties": false, "required": ["findings"],
+      "properties": {"findings": {}}
+    }
+  }
+}

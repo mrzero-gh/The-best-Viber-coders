@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "episode_id": "EP-8K2M4Q7X",
+  "base_currency": "KZT",
+  "period_start": "2026-09-01T00:00:00+05:00",
+  "period_end": "2026-10-01T00:00:00+05:00",
+  "timezone": "+05:00",
+  "counts": {
+    "ledger_rows": 640,
+    "invoices": 58,
+    "payments": 61,
+    "fx_rates": 180,
+    "documents": 119
+  },
+  "rounding": {
+    "mode": "ROUND_HALF_EVEN"
+  },
+  "currency_exponents": {
+    "KZT": 2,
+    "USD": 2,
+    "EUR": 2,
+    "CNY": 2,
+    "RUB": 2,
+    "JPY": 0
+  },
+  "csv_null": "",
+  "config_version": "train-v1"
+}

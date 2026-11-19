@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-gym.local/schemas/observation.schema.json",
+  "title": "Наблюдение, которое среда отдаёт агенту",
+  "description": "Только запрошенные данные, результат или ошибка и остаток шагов. Никаких путей, seed и данных из private/.",
+  "type": "object",
+  "required": ["kind"],
+  "oneOf": [
+    {"$ref": "#/$defs/initial"},
+    {"$ref": "#/$defs/result"},
+    {"$ref": "#/$defs/error"},
+    {"$ref": "#/$defs/final"}
+  ],
+  "$defs": {
+    "steps_used": {"type": "integer", "minimum": 0, "maximum": 100},
+    "steps_remaining": {"type": "integer", "minimum": 0, "maximum": 100},
+    "initial": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "task", "manifest", "policy", "tools", "tables", "steps_used", "steps_remaining"],
+      "properties": {
+        "kind": {"const": "initial"},
+        "task": {"type": "string", "maxLength": 2000},
+        "manifest": {"type": "object"},
+        "policy": {"type": "object"},
+        "tools": {"type": "array", "items": {"type": "string"}},
+        "tables": {"type": "array", "items": {"type": "string"}},
+        "steps_used": {"const": 0},
+        "steps_remaining": {"$ref": "#/$defs/steps_remaining"}
+      }
+    },
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "tool", "result", "steps_used", "steps_remaining"],
+      "properties": {
+        "kind": {"const": "result"},
+        "tool": {"enum": ["list_records", "get_record", "get_document", "calculator"]},
+        "result": {"type": "object"},
+        "steps_used": {"$ref": "#/$defs/steps_used"},
+        "steps_remaining": {"$ref": "#/$defs/steps_remaining"}
+      }
+    },
+    "error": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "tool", "error", "steps_used", "steps_remaining"],
+      "properties": {
+        "kind": {"const": "error"},
+        "tool": {"type": ["string", "null"], "maxLength": 64},
+        "error": {
+          "type": "object", "additionalProperties": false, "required": ["code", "message"],
+          "properties": {
+            "code": {"enum": ["INVALID_ACTION", "UNKNOWN_TOOL", "UNKNOWN_TABLE", "NOT_FOUND", "INVALID_ARGS", "INVALID_CURSOR", "CALC_ERROR", "EPISODE_FINISHED"]},
+            "message": {"type": "string", "maxLength": 200}
+          }
+        },
+        "steps_used": {"$ref": "#/$defs/steps_used"},
+        "steps_remaining": {"$ref": "#/$defs/steps_remaining"}
+      }
+    },
+    "final": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "status", "steps_used", "steps_remaining"],
+      "properties": {
+        "kind": {"const": "final"},
+        "status": {"enum": ["submitted", "invalid_findings", "step_limit", "time_limit"]},
+        "steps_used": {"$ref": "#/$defs/steps_used"},
+        "steps_remaining": {"$ref": "#/$defs/steps_remaining"}
+      }
+    }
+  }
+}

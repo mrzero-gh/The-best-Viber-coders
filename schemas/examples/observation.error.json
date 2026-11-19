@@ -1,0 +1,10 @@
+{
+  "kind": "error",
+  "tool": "get_record",
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Запись INV-ZZZZZZZZ не найдена в таблице invoices"
+  },
+  "steps_used": 8,
+  "steps_remaining": 92
+}

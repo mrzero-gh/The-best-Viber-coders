@@ -1,0 +1,6 @@
+{
+  "tool": "calculator",
+  "args": {
+    "expression": "(250000 - 125000) * 470.15 / 100"
+  }
+}

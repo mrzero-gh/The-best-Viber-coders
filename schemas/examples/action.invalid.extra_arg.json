@@ -1,0 +1,7 @@
+{
+  "tool": "get_document",
+  "args": {
+    "doc_id": "DOC-5RW2N8CA",
+    "path": "../private/truth.json"
+  }
+}
