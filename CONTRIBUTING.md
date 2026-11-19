@@ -50,9 +50,11 @@
 | Роль | Папки |
 |---|---|
 | A — генератор данных | `generator/`, `tests/test_generator*` |
-| B — среда, изоляция, Docker (капитан) | `env/`, `Dockerfile`, `Makefile`, `docs/contract.md`, `schemas/` |
+| B — среда, изоляция, Docker (капитан) | `env/`, `Dockerfile`, `scripts/check.py`, `docs/contract.md`, `schemas/` |
 | C — оценщик и награда | `grader/`, `tests/test_grader*`, `tests/test_attacks*` |
-| D — политики, эпизоды, документы | `policies/`, `episodes/`, `scripts/`, `README.md`, `docs/design.md` |
+| D — политики, эпизоды, документы | `policies/`, `episodes/`, `scripts/` (кроме `check.py`), `README.md`, `docs/design.md` |
+
+Все команды запускаются через Python (`python -m scripts.check`, `python -m scripts.jury`), а не через `make`: у многих на Windows `make` не установлен.
 
 **Общие файлы** (`docs/contract.md`, `schemas/`, `requirements.txt`) меняет только капитан, или через PR с предупреждением в чате: от них зависят все.
 
