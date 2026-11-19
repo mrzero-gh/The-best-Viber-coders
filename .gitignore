@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+
+# Секреты (в проекте их быть не должно, но на всякий случай)
+.env
+.env.*
+!.env.example
+
+# Редакторы и ОС
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Временные прогоны (сдаваемые episodes/ и trajectories.jsonl НЕ игнорируем)
+runs/
+tmp/
+*.log

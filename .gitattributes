@@ -1,0 +1,17 @@
+# Единые окончания строк для всех (Windows, macOS, Linux).
+# LF нужен для Docker-скриптов и для одинаковых хэшей эпизодов (csv/jsonl) на любых машинах.
+* text=auto eol=lf
+
+# Windows-скрипты оставляем с CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Бинарные файлы не трогаем
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.mp4 binary
+*.zip binary
