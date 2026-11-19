@@ -267,3 +267,12 @@ def test_records_are_copies(env):
     init = env.core.initial_observation()
     init["manifest"]["episode_id"] = "X"
     assert env.core.initial_observation()["manifest"]["episode_id"] == "EP-8K2M4Q7X"
+
+
+def test_inspection_steps():
+    """inspection_steps: None до конца, число шагов до submit после него."""
+    e = Env()
+    assert e.core.inspection_steps is None
+    e.step("list_records", table="ledger")
+    e.step("submit", findings={"episode_id": "EP-8K2M4Q7X", "findings": []})
+    assert e.core.inspection_steps == 1
