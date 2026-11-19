@@ -1,0 +1,20 @@
+{
+  "clean_history_sha256": "",
+  "episode_id": "EP-8K2M4Q7X",
+  "generator_version": "fixture-mini",
+  "mutations": [
+    {
+      "changes": [
+        {
+          "after": "2900",
+          "before": "1200",
+          "field": "account",
+          "record_id": "L-7TBC4X1P",
+          "table": "ledger"
+        }
+      ],
+      "issue_id": "ISS-6M3KQ8WD",
+      "type": "payment_allocation"
+    }
+  ]
+}

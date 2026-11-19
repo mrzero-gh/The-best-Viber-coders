@@ -1,0 +1,28 @@
+{
+  "distractors": [],
+  "episode_id": "EP-8K2M4Q7X",
+  "issues": [
+    {
+      "affected_ids": [
+        "INV-3HZ7QK2D",
+        "PAY-9F4TX1MB"
+      ],
+      "amount_tolerance_minor": 1,
+      "currency": "USD",
+      "evidence_sets": [
+        [
+          "DOC-5RW2N8CA",
+          "L-0Q7M2ZK4",
+          "L-7C8D9E0F",
+          "L-7TBC4X1P",
+          "L-8G9H0J1K"
+        ]
+      ],
+      "expected_amount_minor": 125000,
+      "issue_id": "ISS-6M3KQ8WD",
+      "scenario": null,
+      "type": "payment_allocation"
+    }
+  ],
+  "schema_version": "1.0"
+}
