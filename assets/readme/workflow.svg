@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" role="img" aria-labelledby="title desc">
+  <title id="title">Как устроен Audit Gym</title>
+  <desc id="desc">Генератор по seed и конфигу создаёт эпизод: открытые данные public и закрытый эталон private. Среда в отдельном процессе отдаёт агенту только открытые данные через инструменты. После submit оценщик сравнивает выводы с эталоном и возвращает награду. Эталон не пересекает границу процесса агента.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#14171A"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#C8372D"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="430" rx="22" fill="#F6F3EA"/>
+
+  <!-- процесс среды -->
+  <rect x="30" y="24" width="874" height="382" rx="16" fill="none" stroke="#B9B3A3" stroke-width="1.5" stroke-dasharray="8 6"/>
+  <text x="50" y="394" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="17" fill="#6B6F73">процесс среды · python -m env.server</text>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fill="#14171A">
+    <!-- генератор -->
+    <rect x="52" y="140" width="232" height="132" rx="12" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+    <text x="72" y="182" font-size="24" font-weight="700">Генератор</text>
+    <text x="72" y="214" font-size="20">seed + config</text>
+    <text x="72" y="242" font-size="20" fill="#6B6F73">месяц компании</text>
+
+    <!-- public -->
+    <rect x="344" y="48" width="232" height="132" rx="12" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+    <text x="364" y="90" font-size="24" font-weight="700">public/</text>
+    <text x="364" y="122" font-size="20">книга, счета,</text>
+    <text x="364" y="150" font-size="20">платежи, курсы</text>
+
+    <!-- private -->
+    <rect x="344" y="232" width="232" height="132" rx="12" fill="#FBEDEB" stroke="#C8372D" stroke-width="2"/>
+    <text x="364" y="274" font-size="24" font-weight="700" fill="#C8372D">private/</text>
+    <text x="364" y="306" font-size="20">эталон ошибок</text>
+    <text x="364" y="334" font-size="20" fill="#6B6F73">агент не видит</text>
+
+    <!-- среда -->
+    <rect x="636" y="48" width="246" height="132" rx="12" fill="#14171A"/>
+    <text x="656" y="90" font-size="24" font-weight="700" fill="#FFFFFF">Среда</text>
+    <text x="656" y="122" font-size="20" fill="#F6F3EA">5 инструментов</text>
+    <text x="656" y="150" font-size="20" fill="#F6F3EA">100 шагов · 60 с</text>
+
+    <!-- оценщик -->
+    <rect x="636" y="232" width="246" height="132" rx="12" fill="#FFFFFF" stroke="#14171A" stroke-width="2"/>
+    <text x="656" y="274" font-size="24" font-weight="700">Оценщик</text>
+    <text x="656" y="306" font-size="20">matcher 1-к-1</text>
+    <text x="656" y="334" font-size="20">clip(2·F1−1−…)</text>
+
+    <!-- агент -->
+    <rect x="950" y="48" width="200" height="132" rx="12" fill="#FFFFFF" stroke="#2F7D4F" stroke-width="2.5"/>
+    <text x="970" y="90" font-size="24" font-weight="700" fill="#2F7D4F">Агент</text>
+    <text x="970" y="122" font-size="20">политика</text>
+    <text x="970" y="150" font-size="20">или LLM</text>
+  </g>
+
+  <g fill="none" stroke-width="2.2">
+    <path d="M284 180 C 314 180, 314 114, 340 114" stroke="#14171A" marker-end="url(#arrow)"/>
+    <path d="M284 232 C 314 232, 314 298, 340 298" stroke="#14171A" marker-end="url(#arrow)"/>
+    <path d="M576 114 L 632 114" stroke="#14171A" marker-end="url(#arrow)"/>
+    <path d="M576 298 L 632 298" stroke="#C8372D" marker-end="url(#arrow-red)"/>
+    <path d="M882 92 L 946 92" stroke="#14171A" marker-end="url(#arrow)"/>
+    <path d="M946 136 L 886 136" stroke="#14171A" marker-end="url(#arrow)"/>
+    <path d="M760 180 L 760 228" stroke="#14171A" marker-end="url(#arrow)"/>
+    <path d="M882 320 C 1050 320, 1050 250, 1050 184" stroke="#2F7D4F" marker-end="url(#arrow)"/>
+  </g>
+
+  <g font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="17" fill="#3E4246">
+    <text x="904" y="78" text-anchor="middle">obs</text>
+    <text x="924" y="162" text-anchor="middle">act</text>
+    <text x="772" y="210">submit</text>
+    <text x="1064" y="270">награда</text>
+  </g>
+</svg>
