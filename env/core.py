@@ -55,6 +55,7 @@ class AuditCore:
         self.steps_used = 0
         self.finished = False
         self.grader_result = None
+        self.inspection_steps = None  # выставляется в _finish (для журнала оценщика)
 
     # ---------- служебное ----------
     @property
@@ -133,6 +134,7 @@ class AuditCore:
             findings_obj = findings
         res = self._grader(findings_obj, self._truth, self.episode_id, inspection_steps)
         self.grader_result = res
+        self.inspection_steps = inspection_steps
         if status == "submitted" and not res.get("valid", True):
             status = "invalid_findings"
         self.finished = True
