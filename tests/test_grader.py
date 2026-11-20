@@ -57,11 +57,15 @@ def test_normalization_and_alternative_evidence_do_not_mutate_inputs():
     item["evidence_sets"].append(["DOC-00000002", "L-00000002"])
     truth = truth_for(item)
     answer = answer_for(truth)
-    answer["findings"][0]["affected_ids"] = [" PAY-00000001 ", "INV-00000001", "INV-00000001"]
-    answer["findings"][0]["evidence_ids"] = [" DOC-00000002 ", "L-00000002", "L-00000002", "EXTRA"]
+    # повторы и порядок ID незначимы, дополнительное доказательство допустимо
+    answer["findings"][0]["affected_ids"] = ["PAY-00000001", "INV-00000001", "INV-00000001"]
+    answer["findings"][0]["evidence_ids"] = ["DOC-00000002", "L-00000002", "L-00000002", "EXTRA"]
     before = deepcopy((answer, truth))
     assert score(answer, truth)["reward"] == 1
     assert (answer, truth) == before
+    # соглашения жюри: ID сравниваются точно, пробелы значимы
+    answer["findings"][0]["affected_ids"] = [" PAY-00000001 ", "INV-00000001"]
+    assert score(answer, truth)["metrics"]["tp"] == 0
 
 
 def test_one_to_one_and_stable_issue_order():

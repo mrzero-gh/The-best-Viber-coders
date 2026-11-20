@@ -11,7 +11,7 @@ from tests.test_grader_fixtures import EPISODE_ID, answer_for, issue, truth_for
     ("type", "invented"), ("type", []), ("claimed_amount_minor", True),
     ("claimed_amount_minor", 1000.0), ("claimed_amount_minor", "1000"),
     ("claimed_amount_minor", float("nan")), ("claimed_amount_minor", float("inf")),
-    ("currency", "usd"), ("currency", "USD\n"), ("currency", None),
+    ("currency", None), ("currency", ""), ("currency", 840),
     ("affected_ids", []), ("affected_ids", "INV-00000001"),
     ("affected_ids", [None]), ("affected_ids", [""]), ("affected_ids", ["x" * 65]),
     ("evidence_ids", ["L-00000001"] * 11), ("evidence_ids", {}),
@@ -56,6 +56,10 @@ def test_missing_field(field):
     ("evidence_ids", ["DOC-99999999", "L-99999999"]),
     ("evidence_ids", ["DOC-00000001"]), ("evidence_ids", []),
     ("currency", "USD"), ("claimed_amount_minor", 1002), ("claimed_amount_minor", -1000),
+    # соглашения жюри (M06): валюта сравнивается точно, другой регистр или пробел - FP
+    ("currency", "kzt"), ("currency", "KZT\n"), ("currency", " KZT"),
+    # ID сравниваются точно, с пробелами
+    ("affected_ids", [" INV-00000001"]), ("affected_ids", ["INV-00000001 "]),
 ])
 def test_well_formed_but_false_claim_is_fp(field, value):
     truth = truth_for(issue())

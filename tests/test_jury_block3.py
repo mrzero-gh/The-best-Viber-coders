@@ -3,8 +3,8 @@
 Источник: genesis-exe.com/fintech-checks.html, разделы «Блок 3» и «Точные соглашения matcher».
 Проверяется наш оценщик grader.evaluate.evaluate (его же вызывает judge_adapter.score_episode).
 
-Известные расхождения с правилами жюри помечены xfail(strict=True): когда оценщик исправят,
-тест начнёт проходить, pytest сообщит XPASS как ошибку, и метку нужно будет снять.
+Несуществующие доказательства проверяются по множеству публичных ID эпизода (public_ids):
+его передают оценщику сервер (env.core) и judge_adapter.score_episode.
 """
 import copy
 
@@ -20,17 +20,6 @@ R1, R2, R3, R9 = "INV-R1", "INV-R2", "INV-R3", "INV-R9"
 D1, D2, D3, U = "DOC-D1", "DOC-D2", "DOC-D3", "DOC-UNKNOWN"
 STEPS = 10  # inspection_steps по умолчанию в unit-тестах жюри
 EPS = 1e-9  # допустимая абсолютная погрешность вещественного результата
-
-PENDING_EVIDENCE = pytest.mark.xfail(
-    strict=True, reason="C: несуществующий evidence_id должен давать FP; evaluate не знает публичных ID")
-PENDING_CURRENCY = pytest.mark.xfail(
-    strict=True, reason="C: валюта с другим регистром/пробелом - FP, а не ошибка структуры (pattern в схеме)")
-PENDING_STRIP = pytest.mark.xfail(
-    strict=True, reason="C: ID сравниваются точно, с пробелами; matcher делает strip()")
-PENDING_MAXMATCH = pytest.mark.xfail(
-    strict=True, reason="matcher жадный; в наших эпизодах ключ (type, affected_ids) уникален, "
-                        "поэтому граф M10 не возникает, но на уровне match() результат 1, а не 2")
-
 
 def issue(iid="ISS-0000000A", type_=T, affected=(R1,), amount=10000, currency="KZT", tol=0,
           evidence=((D1, D2),)):
@@ -48,9 +37,11 @@ def finding(type_=T, affected=(R1,), amount=10000, currency="KZT", evidence=(D1,
             "currency": currency, "evidence_ids": list(evidence), "explanation": explanation}
 
 
-def run(findings, tr, steps=STEPS):
-    res = evaluate({"episode_id": EP, "findings": findings}, tr, EP, steps)
-    return res
+PUBLIC = frozenset({R1, R2, R3, R9, "INV-R4", "INV-R5", D1, D2, D3} | {"DOC-E%d" % i for i in range(10)})
+
+
+def run(findings, tr, steps=STEPS, public_ids=PUBLIC):
+    return evaluate({"episode_id": EP, "findings": findings}, tr, EP, steps, public_ids=public_ids)
 
 
 def assert_metrics(res, tp, fp, fn, reward, p=None, r=None, f1=None):
@@ -174,7 +165,6 @@ def test_m03_extra_existing_evidence_ok():
     assert_metrics(run([finding(affected=(R1, R2), evidence=(D2, D1, D3))], truth(AM)), 1, 0, 0, 0.98)
 
 
-@PENDING_EVIDENCE
 def test_m04_unknown_evidence_id():
     assert_metrics(run([finding(affected=(R1, R2), evidence=(D1, D2, U))], truth(AM)), 0, 1, 1, -1.0)
 
@@ -183,7 +173,6 @@ def test_m05_eleven_evidence_with_repeats():
     assert_invalid(run([finding(affected=(R1, R2), evidence=[D2] + [D1] * 10)], truth(AM)))
 
 
-@PENDING_CURRENCY
 @pytest.mark.parametrize("cur", ["kzt", "KZT ", " KZT"])
 def test_m06_currency_exact(cur):
     assert_metrics(run([finding(affected=(R1, R2), currency=cur)], truth(AM)), 0, 1, 1, -1.0)
@@ -209,14 +198,18 @@ def _edge_issue(iid, evidence):
     return issue(iid=iid, affected=(R1, R2), evidence=evidence)
 
 
-@PENDING_MAXMATCH
 def test_m10_maximum_matching():
-    """F0 подходит A и B, F1 - только A: нужно F1->A, F0->B, TP=2 (жадный F0->A даёт 1)."""
+    """F0 подходит A и B, F1 - только A: нужно F1->A, F0->B, TP=2 (жадный F0->A дал бы 1).
+    В наших эпизодах такой граф не возникает (ключ (type, affected_ids) уникален), но match()
+    всё равно строит максимальное паросочетание."""
     a = _edge_issue("ISS-0000000A", ((D1,),))
     b = _edge_issue("ISS-0000000B", ((D2,),))
     f0 = finding(affected=(R1, R2), evidence=(D1, D2))
     f1 = finding(affected=(R1, R2), evidence=(D1,))
-    assert match([f0, f1], [a, b])["tp"] == 2
+    res = match([f0, f1], [a, b])
+    assert res["tp"] == 2
+    assert res["matches"] == [{"finding_index": 0, "issue_id": "ISS-0000000B"},
+                              {"finding_index": 1, "issue_id": "ISS-0000000A"}]
 
 
 def test_m10_graph_cannot_occur_in_our_truth():
@@ -246,7 +239,6 @@ def test_m12_identical_correct_findings():
 
 # ------------------------------------------------------------------ нормализация ID
 
-@PENDING_STRIP
 def test_ids_compared_exactly_with_spaces():
     assert_metrics(run([finding(affected=(" " + R1,))], truth(A)), 0, 1, 1, -1.0)
 
@@ -260,3 +252,23 @@ def test_findings_order_does_not_change_score():
     a = run(fs, truth(A, B))
     b = run(list(reversed(fs)), truth(A, B))
     assert a["metrics"] == b["metrics"] and a["reward"] == b["reward"]
+
+
+def test_m04_without_public_ids_not_checked():
+    """Без public_ids (прямой вызов evaluate) существование доказательств не проверяется."""
+    assert run([finding(affected=(R1, R2), evidence=(D1, D2, U))], truth(AM), public_ids=None)["metrics"]["tp"] == 1
+
+
+def test_m04_score_episode_uses_public_ids(tmp_path):
+    """judge_adapter.score_episode передаёт ID открытых данных: лишний несуществующий ID - FP."""
+    import judge_adapter as ja
+    ep = tmp_path / "ep"
+    ja.generate_episode(5, {}, str(ep))
+    t = __import__("json").loads((ep / "private" / "truth.json").read_text(encoding="utf-8"))
+    i = t["issues"][0]
+    f = {"type": i["type"], "affected_ids": i["affected_ids"], "claimed_amount_minor": i["expected_amount_minor"],
+         "currency": i["currency"], "evidence_ids": sorted(i["evidence_sets"][0]), "explanation": "x"}
+    ok = ja.score_episode(str(ep), {"episode_id": t["episode_id"], "findings": [f]}, 0)
+    bad = ja.score_episode(str(ep), {"episode_id": t["episode_id"],
+                                     "findings": [dict(f, evidence_ids=f["evidence_ids"] + ["DOC-ZZZZZZZZ"])]}, 0)
+    assert ok["tp"] == 1 and bad["tp"] == 0 and bad["fp"] == 1

@@ -1,7 +1,7 @@
 """Фейковый оценщик для тестов сервера (подключается через --grader tests.fake_grader:evaluate)."""
 
 
-def evaluate(findings_obj, truth, episode_id, inspection_steps):
+def evaluate(findings_obj, truth, episode_id, inspection_steps, **kwargs):
     # Лишний вывод в stdout: сервер не должен из-за него ломать протокол
     print("noise")
     if isinstance(findings_obj, dict) and isinstance(findings_obj.get("findings"), list):
@@ -10,7 +10,7 @@ def evaluate(findings_obj, truth, episode_id, inspection_steps):
     return {"valid": False, "reward": -1.0, "error": "bad structure", "metrics": None}
 
 
-def evaluate_fd_noise(findings_obj, truth, episode_id, inspection_steps):
+def evaluate_fd_noise(findings_obj, truth, episode_id, inspection_steps, **kwargs):
     """Пишет мусор прямо в дескриптор 1, мимо sys.stdout (как C-расширение или дочерний процесс)."""
     import os
     os.write(1, b"raw fd1 noise" + bytes([10]))

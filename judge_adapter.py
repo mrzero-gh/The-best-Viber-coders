@@ -179,8 +179,11 @@ def score_episode(episode_dir: str, findings: dict, inspection_steps: int) -> di
     from env.fingerprint import episode_fingerprint, public_hashes
     from grader.evaluate import evaluate
     ep = Path(episode_dir)
-    episode_id = load_public(ep).manifest["episode_id"]
-    res = evaluate(findings, load_truth(ep), episode_id, inspection_steps)
+    public = load_public(ep)
+    episode_id = public.manifest["episode_id"]
+    # доказательство, которого нет в открытых данных, не сопоставляется (соглашение жюри, M04)
+    res = evaluate(findings, load_truth(ep), episode_id, inspection_steps,
+                   public_ids=public.public_ids())
     _log_score(episode_id, inspection_steps, res, episode_fingerprint(public_hashes(ep)))
     if not res["valid"]:
         return {"tp": None, "fp": None, "fn": None, "precision": None, "recall": None,

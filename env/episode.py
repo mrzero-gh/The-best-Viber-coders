@@ -42,6 +42,13 @@ class Episode:
     def episode_id(self) -> str:
         return self.manifest["episode_id"]
 
+    def public_ids(self) -> frozenset:
+        """Все ID, доступные агенту через инструменты: записи таблиц (включая ключи FX) и документы."""
+        ids = set(self.documents)
+        for rows in self.records.values():
+            ids.update(rows)
+        return frozenset(ids)
+
     def table(self, name: str) -> list:
         """Строки таблицы в порядке файла."""
         return getattr(self, name)

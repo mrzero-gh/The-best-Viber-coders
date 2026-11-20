@@ -132,7 +132,8 @@ class AuditCore:
             findings_obj = {"episode_id": self.episode_id, "findings": []}
         else:
             findings_obj = findings
-        res = self._grader(findings_obj, self._truth, self.episode_id, inspection_steps)
+        res = self._grader(findings_obj, self._truth, self.episode_id, inspection_steps,
+                           public_ids=self.episode.public_ids())
         self.grader_result = res
         self.inspection_steps = inspection_steps
         if status == "submitted" and not res.get("valid", True):
