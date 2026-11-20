@@ -131,9 +131,26 @@ docker run --rm --network none --read-only --tmpfs /tmp --cpus 2 --memory 4g -e 
 
 ---
 
+## Адаптер жюри (`judge_adapter.py`)
+
+Подключение по [определениям проверок FinTech](https://genesis-exe.com/fintech-checks.html):
+`generate_episode(seed, config, output_dir)`, `make_env()` (`reset(seed, config)`, `step({"name", "args"})`)
+и `score_episode(episode_dir, findings, inspection_steps)`. Рабочая директория — корень репозитория
+(в Docker — `/app`). Самопроверка одной командой:
+
+```bash
+python judge_adapter.py
+```
+
+Формат наблюдений и результатов, коды ошибок, соответствие четырёх типов ошибок, изоляция и
+парные проверки описаны в [docs/judge_adapter.md](docs/judge_adapter.md).
+
+---
+
 ## Документация
 
 - [docs/design.md](docs/design.md) — **Записка о дизайне и архитектуре** (архитектура политик, методика тестов, измеренный разбор сбоев, честные ограничения)
+- [docs/judge_adapter.md](docs/judge_adapter.md) — Адаптер жюри: точки входа, форматы, типы ошибок
 - [docs/contract.md](docs/contract.md) — Контракт среды Audit Gym (форматы, протокол, 5 действий, лимиты)
 - [docs/DATA.md](docs/DATA.md) — Спецификация данных и примеры
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Руководство по Git и контрибуции
