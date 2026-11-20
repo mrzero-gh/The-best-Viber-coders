@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_EVEN, Decimal
 
+from generator.config import DOCUMENT_BOUNDS, LEDGER_BOUNDS
+
 # Сколько KZT стоит 1 единица валюты (стартовое значение случайного блуждания)
 KZT_VALUE = {
     "KZT": Decimal("1"), "USD": Decimal("470"), "EUR": Decimal("510"), "CNY": Decimal("65"),
@@ -195,8 +197,19 @@ def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
     """Число документов и целевое число проводок с учётом совместимости диапазонов."""
     d_lo, d_hi = cfg["size"]["documents"]
     r_lo, r_hi = cfg["size"]["ledger_rows"]
-    r_hi_eff = max(r_lo, r_hi - reserve_rows)
-    docs = rng.randint(d_lo, max(d_lo, d_hi - reserve_docs))
+    # Запас под ошибки и отвлекающие случаи вычитается из ВЕРХНЕЙ границы и не возвращается
+    # нижней: иначе при узком диапазоне (например [2000, 2000]) внесённые строки и документы
+    # выходят за предел кейса. Если запас не помещается, чистая часть может быть меньше
+    # нижней границы, итог всё равно близок к верхней. При обычных диапазонах выбор прежний.
+    r_hi_eff = max(LEDGER_BOUNDS[0], r_hi - reserve_rows)
+    # Внесённые строки иногда превышают запас (до +1 на каждые 3 зарезервированные), а чистая
+    # история может перебрать цель на 3 строки. При широком диапазоне цель берётся не выше 3/4
+    # диапазона и этого хватает; при узком цель прижата к верхней границе - нужен явный допуск.
+    slack = reserve_rows // 3 + 4
+    if (r_hi_eff - r_lo) // 4 < slack:
+        r_hi_eff = max(LEDGER_BOUNDS[0], r_hi - reserve_rows - slack)
+    d_hi_eff = max(DOCUMENT_BOUNDS[0], d_hi - reserve_docs)
+    docs = rng.randint(min(d_lo, d_hi_eff), d_hi_eff)
     while True:
         n_pay = docs * 2 // 5
         n_inv = docs - n_pay

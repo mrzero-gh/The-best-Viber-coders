@@ -97,7 +97,7 @@ date,source_currency,target_currency,rate
 | Файл | Что внутри | Кто читает |
 |---|---|---|
 | `truth.json` | `issues[]` — ошибки: `issue_id`, `type`, `affected_ids`, `expected_amount_minor`, `currency`, `amount_tolerance_minor`, `evidence_sets[]`, `scenario`; `distractors[]` — законные «ловушки» | оценщик, oracle, отчёты |
-| `provenance.json` | как вносились ошибки (`mutations`), хэш чистой истории | разбор сбоев, `generator.explain` |
+| `provenance.json` | как вносились ошибки (`mutations`), хэш чистой истории; формат в разделе 3.3 | разбор сбоев, `generator.explain` |
 | `generation.json` | `seed`, `config`, версия генератора, `public_sha256` и `episode_sha256` (отпечаток), запланировано/внесено ошибок и ловушек | среда (проверка отпечатка), отчёты |
 
 Пример ошибки из `truth.json`:
@@ -106,6 +106,50 @@ date,source_currency,target_currency,rate
  "expected_amount_minor": 2076280, "currency": "JPY", "amount_tolerance_minor": 1,
  "evidence_sets": [["DOC-69MP4DT0", "L-135CK00B"], ["DOC-69MP4DT0", "L-1FBEEYHS"], "..."], "scenario": null}
 ```
+
+### 3.3. Формат `provenance.json`
+
+Журнал того, как чистая история компании превратилась в эпизод с ошибками. По нему видно, какое изменение породило каждую ошибку из `truth.json`.
+
+```json
+{"episode_id": "EP-…", "generator_version": "0.5.0",
+ "clean_history_sha256": "9f…",
+ "mutations": [
+   {"issue_id": "ISS-…", "type": "fx_conversion",
+    "changes": [{"table": "fx", "record_id": "FX:2026-05-11:JPY:KZT", "field": "rate_used",
+                 "before": "3.0776", "after": "3.0865 (rate_of:2026-05-12)"}, "…"]}]}
+```
+
+| Поле | Значение |
+|---|---|
+| `episode_id`, `generator_version` | как в `generation.json` |
+| `clean_history_sha256` | sha256 чистой истории **до** внесения ошибок, но уже с отвлекающими случаями (`generator.build.history_digest`: канонический JSON таблиц ledger, invoices, payments, fx) |
+| `mutations[]` | одна запись на каждую ошибку, в том же порядке, что `truth.issues`; `issue_id` и `type` совпадают с `truth.json` |
+| `changes[]` | `{table, record_id, field, before, after}`: что именно изменилось |
+
+Отвлекающие случаи (`truth.distractors`) в `mutations` не попадают: это законные данные чистой истории.
+
+**Значения `field`.** Обычное имя поля означает правку значения. Имена с `__` и с двоеточием служебные.
+
+| `type` | `table` | `field` | `record_id` | `before` → `after` |
+|---|---|---|---|---|
+| `duplicate_invoice` | `invoices` | `__copy_of__` | ID дубликата | `null` → ID оригинала |
+| любой | `ledger` | `__created__` | `row_id` новой проводки | `null` → ID документа, к которому она относится |
+| любой, кроме дубликата | `ledger` | `__deleted__` | `row_id` удалённой проводки | ID документа → `null` |
+| `payment_allocation` | `ledger` | `allocated_minor:<INV>` | ID платежа | сколько должно было разнестись на счёт `<INV>` → сколько разнесено (minor) |
+| `fx_conversion` | `ledger` | `debit_minor` | `row_id` ключевой проводки (1200 для счёта, 1010 для платежа) | верная сумма в базовой валюте → проведённая |
+| `fx_conversion` | `fx` | `rate_used` | ключ курса `FX:<дата>:<валюта>:<база>` | верный курс → `"<курс> (rate_of:<другая дата>)"` или `"<курс> (distorted:<доля>)"` |
+| `period_cutoff` | `invoices` / `payments` | `issued_at` / `timestamp` | ID документа | исходная дата → дата за границей периода |
+| `period_cutoff` | `ledger` | `posted_at` | ID документа (все его проводки) | исходная дата → дата проведения |
+
+Документ перепроводится целиком: у `fx_conversion` и `period_cutoff` старые проводки документа идут как `__deleted__`, новые как `__created__`. Сумма ошибки (`expected_amount_minor` в `truth.json`) следует из `before`/`after`: у `fx_conversion` это `|after − before|` поля `debit_minor`, у `payment_allocation` это `before − after` поля `allocated_minor`.
+
+**Сценарии взаимодействия** (`truth.issues[].scenario`) дают несколько записей в `mutations`, по одной на каждую ошибку сценария. Изменения одной записи могут затрагивать проводки, созданные предыдущей (например, `__deleted__` строки, которую создал дубликат).
+
+**Как проверить независимо.**
+- `python -m generator.explain <папка эпизода> [ISS-…]` рассказывает историю каждой ошибки по `provenance.json`.
+- Из `__deleted__` содержимое удалённых строк не восстанавливается (хранится только ключ документа). Поэтому чистая история проверяется перегенерацией: тот же `seed` и `config` из `generation.json` дают тот же эпизод и тот же `clean_history_sha256`.
+- `record_id` у `__deleted__` в открытых данных нет. Остальные `record_id` в открытых данных есть. Исключение: `__created__`-строки дубликата в сценарии `duplicate_invoice_wrong_fx`, которые следующая запись удаляет как `__deleted__`.
 
 > Эпизоды в `episodes/` руками не править: среда сверяет sha256 и отклонит такой эпизод (`EPISODE_INVALID`). Нужно другое — перегенерировать.
 
