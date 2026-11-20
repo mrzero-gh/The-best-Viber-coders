@@ -10,10 +10,16 @@ dist/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
+junit.xml
 htmlcov/
+.tox/
+.nox/
 
 # Виртуальные окружения (env/ не игнорируем: это папка среды в проекте)
 .venv/
+.venv-*/
 venv/
 
 # Секреты (в проекте их быть не должно, но на всякий случай)
@@ -23,13 +29,19 @@ venv/
 
 # Редакторы и ОС
 .vscode/
+*.code-workspace
+.history/
 .idea/
 *.swp
+*.swo
+*~
 .DS_Store
+._*
 Thumbs.db
 desktop.ini
 
 # Временные прогоны (сдаваемые episodes/ и trajectories.jsonl НЕ игнорируем)
 runs/
 tmp/
+.tmp/
 *.log
