@@ -22,6 +22,7 @@ import socket
 import sys
 import tempfile
 import threading
+import traceback
 import urllib.parse
 import webbrowser
 from pathlib import Path
@@ -89,7 +90,6 @@ def get_available_episodes() -> List[Dict[str, Any]]:
             res.append({
                 "episode_id": ep_dir.name,
                 "mode": mode,
-                "path": str(ep_dir),
                 "base_currency": manifest.get("base_currency", "KZT"),
                 "timezone": manifest.get("timezone", "+05:00"),
                 "period_start": manifest.get("period_start", "")[:10],
@@ -1290,6 +1290,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 """
 
 
+POLICIES = ("oracle", "smart", "naive", "flag_all", "random")
 _EPISODE_ID = re.compile(r"EP-[0-9A-HJKMNP-TV-Z]{8}")
 _LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 MAX_BODY = 64 * 1024
@@ -1303,13 +1304,21 @@ def _hostname(host_header: str) -> str:
     return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
 
 
+def _host_allowed(bound: str, host_header: str) -> bool:
+    """Host: loopback или тот IP, на котором явно запущен сервер (--host 192.168.1.5).
+    При --host 0.0.0.0 API доступен только через localhost: после DNS rebinding в Host
+    стоит домен злоумышленника, а не IP, поэтому такой запрос не пройдёт."""
+    name = _hostname(host_header)
+    return name in _LOOPBACK or (bound not in ("0.0.0.0", "::", "") and name == bound)
+
+
 class AuditUIRequestHandler(http.server.BaseHTTPRequestHandler):
     """Легковесный HTTP-обработчик для UI и REST API."""
 
     def _request_allowed(self) -> bool:
         """API только для страниц самого дашборда: чужой Origin и подмена Host (DNS rebinding) запрещены."""
         host = self.headers.get("Host") or ""
-        if self.server.server_address[0] in _LOOPBACK and _hostname(host) not in _LOOPBACK:
+        if not _host_allowed(self.server.server_address[0], host):
             return False
         origin = self.headers.get("Origin")
         return origin is None or origin == "http://" + host
@@ -1378,6 +1387,9 @@ class AuditUIRequestHandler(http.server.BaseHTTPRequestHandler):
             if not isinstance(ep_id, str) or not _EPISODE_ID.fullmatch(ep_id):
                 self.send_error(404, "Episode not found")
                 return
+            if not isinstance(policy, str) or policy.lower() not in POLICIES:
+                self.send_error(400, "Unknown policy")
+                return
             details = get_episode_details(ep_id)
             if not details:
                 self.send_error(404, "Episode not found")
@@ -1396,16 +1408,21 @@ class AuditUIRequestHandler(http.server.BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 self.send_error(400, "Bad seed")
                 return
-            out_dir = ROOT / "episodes" / "train"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            ep_path = generate_episode(seed, TRAIN_CONFIG, out_dir)
-            # Запускаем Smart Auditor для записи первой траектории
-            from scripts.collect_episodes import run_episode_and_record_trajectory
-            policy = RuleBasedPolicy(naive=False)
-            traj = run_episode_and_record_trajectory(ep_path, TRAIN_CONFIG, policy)
-            with open(ep_path / "trajectories.jsonl", "w", encoding="utf-8", newline="\n") as f:
-                for item in traj:
-                    f.write(canonical_dumps(item) + "\n")
+            try:
+                out_dir = ROOT / "episodes" / "train"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                ep_path = generate_episode(seed, TRAIN_CONFIG, out_dir)
+                # Запускаем Smart Auditor для записи первой траектории
+                from scripts.collect_episodes import run_episode_and_record_trajectory
+                policy = RuleBasedPolicy(naive=False)
+                traj = run_episode_and_record_trajectory(ep_path, TRAIN_CONFIG, policy)
+                with open(ep_path / "trajectories.jsonl", "w", encoding="utf-8", newline="\n") as f:
+                    for item in traj:
+                        f.write(canonical_dumps(item) + "\n")
+            except Exception:
+                traceback.print_exc(file=sys.stderr)
+                self.send_error(500, "Generation failed")
+                return
             self.send_json({"episode_id": ep_path.name, "seed": seed})
             return
 
@@ -1449,8 +1466,8 @@ def export_standalone_html(output_path: Path, episode_id: Optional[str] = None) 
         "current_episode": current_ep,
     }
 
-    # "</" внутри JSON закрыл бы тег <script> (данные агента в траекториях произвольные)
-    payload = json.dumps(initial_data, ensure_ascii=False).replace("</", "<\\/")
+    # "<" бывает только внутри строк JSON; \u003c не даёт "</script>" и "<!--" сломать тег <script>
+    payload = json.dumps(initial_data, ensure_ascii=False).replace("<", "\\u003c")
     embedded_script = f"\n<script>window.__INITIAL_DATA__ = {payload};</script>\n"
     html_out = HTML_TEMPLATE.replace("<body>", f"<body>{embedded_script}")
 
@@ -1464,7 +1481,12 @@ def serve(host: str = "127.0.0.1", port: int = 8080, open_browser: bool = False)
     actual_port = find_free_port(port)
     server_address = (host, actual_port)
     httpd = http.server.HTTPServer(server_address, AuditUIRequestHandler)
-    url = f"http://{host}:{actual_port}"
+    # при 0.0.0.0 API отвечает только через localhost (см. _host_allowed)
+    url_host = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    url = f"http://{url_host}:{actual_port}"
+    if host not in _LOOPBACK:
+        print(f"[ВНИМАНИЕ] Дашборд показывает эталон (truth) и доступен из сети на {host}. "
+              "Используйте только в доверенной сети.", file=sys.stderr)
 
     print("=" * 70)
     print("  AUDIT GYM // ВЕБ-ИНТЕРФЕЙС ФИНАНСОВОГО АУДИТОРА (UI)")
