@@ -694,14 +694,14 @@ def print_step_final(
         print()
 
 
-def list_episodes(source: Optional[str] = None) -> None:
+def list_episodes(source: Optional[str] = None, use_color: bool = True) -> None:
     """Выводит список всех доступных для реплея эпизодов в терминал."""
     episodes, _ = load_trajectories_from_source(source)
     if not episodes:
         print(f"Траектории не найдены в источнике: {source or 'trajectories.jsonl'}")
         return
 
-    th = Theme(True)
+    th = Theme(use_color)
     hdrs = ["№", "ID Эпизода", "Всего шагов", "Находок", "Финальная награда", "Статус"]
     rows = []
 
@@ -749,6 +749,11 @@ def replay_episode(
 
     if target_id not in episodes:
         print(f"{theme.RED}Ошибка: Эпизод '{target_id}' не найден среди доступных: {sorted(episodes.keys())}{theme.RESET}")
+        return 1
+    if ep_dir is not None and not episode_id and ep_dir.name != target_id:
+        # передана папка эпизода, а его траектории нет: не подменяем его другим эпизодом
+        print(f"{theme.RED}Ошибка: для эпизода '{ep_dir.name}' нет траектории "
+              f"(ни {ep_dir / 'trajectories.jsonl'}, ни записи в общем trajectories.jsonl).{theme.RESET}")
         return 1
 
     steps = episodes[target_id]
@@ -885,7 +890,7 @@ def main() -> int:
 
     # Проверка вызова --list
     if args.list:
-        list_episodes(args.target)
+        list_episodes(args.target, use_color=not args.no_color)
         return 0
 
     return replay_episode(
