@@ -32,6 +32,7 @@ docker run --rm --network none audit-gym
 ## Документы
 
 - [docs/contract.md](docs/contract.md) — контракт среды (форматы, действия, награда)
+- [docs/DATA.md](docs/DATA.md) — что генерируется и что выходит, с примерами
 - [docs/TEAM-PLAN.md](docs/TEAM-PLAN.md) — план и роли
 - [docs/IDEAS.md](docs/IDEAS.md) — идеи сверх требований кейса
 - [CONTRIBUTING.md](CONTRIBUTING.md) — как работать с Git
