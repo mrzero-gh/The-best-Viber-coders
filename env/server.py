@@ -138,7 +138,8 @@ class Server:
         """Обрабатывает команду; False - нужно завершить работу."""
         try:
             msg = json.loads(line.decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            # RecursionError: JSON с очень глубокой вложенностью ([[[[...]]]]) - ошибка клиента
             raise _ProtoError("BAD_REQUEST")
         if not isinstance(msg, dict) or not isinstance(msg.get("cmd"), str):
             raise _ProtoError("BAD_REQUEST")
