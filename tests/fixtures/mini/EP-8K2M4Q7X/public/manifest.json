@@ -1,0 +1,24 @@
+{
+  "base_currency": "KZT",
+  "config_version": "fixture-mini",
+  "counts": {
+    "documents": 5,
+    "fx_rates": 51,
+    "invoices": 3,
+    "ledger_rows": 12,
+    "payments": 2
+  },
+  "csv_null": "",
+  "currency_exponents": {
+    "KZT": 2,
+    "USD": 2
+  },
+  "episode_id": "EP-8K2M4Q7X",
+  "period_end": "2026-10-01T00:00:00+05:00",
+  "period_start": "2026-09-01T00:00:00+05:00",
+  "rounding": {
+    "mode": "ROUND_HALF_EVEN"
+  },
+  "schema_version": "1.0",
+  "timezone": "+05:00"
+}
