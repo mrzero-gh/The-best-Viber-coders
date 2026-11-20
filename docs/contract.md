@@ -68,10 +68,11 @@
 `step` после завершения эпизода — не ошибка протокола, а наблюдение `EPISODE_FINISHED` (раздел 7). EOF на stdin — тихий выход с кодом 0.
 
 ### Запуск сервера
-`python -m env.server [--run-id ID] [--runs-dir DIR] [--episode PATH] [--grader module:func] [--time-limit-s N]`
+`python -m env.server [--run-id ID] [--runs-dir DIR] [--episode PATH [--trust-episode]] [--grader module:func] [--time-limit-s N]`
 - `--run-id` — по умолчанию `run-<YYYYmmdd-HHMMSS>-<pid>`; `--runs-dir` — по умолчанию переменная окружения `AUDIT_GYM_RUNS_DIR`, иначе `runs` (в Docker-образе `AUDIT_GYM_RUNS_DIR=/tmp/runs`, потому что код смонтирован только для чтения).
 - Контейнер: `python -m scripts.check --docker` собирает образ и запускает проверку с `--network none --read-only --tmpfs /tmp --cpus 2 --memory 4g`, не от root; `tests/test_container.py` внутри подтверждает отсутствие сети и запись только в `/tmp`.
 - `--episode PATH` — готовый эпизод с диска (seed игнорируется, из `config` берётся только `mode`); для тестов и dev-эпизодов.
+- `--trust-episode` — только с `--episode`: эпизод подал доверенный вызывающий (адаптер жюри, [judge_adapter.md](judge_adapter.md)). Отпечаток (раздел 15) не сверяется с `generation.json`, а пересчитывается по фактическим `public`-файлам и пишется в журнал: жюри в парных проверках само переставляет записи и меняет ID в копии эпизода.
 - `--grader`, `--time-limit-s` — **только для тестов** (подмена оценщика и лимита времени).
 - Без `--episode` эпизод генерируется во временную папку; после загрузки `public` и `truth` в память папка удаляется целиком.
 - Журнал оценщика `<runs-dir>/<run-id>/grader_log.jsonl` (в обоих режимах): строка на завершённый эпизод (любой `status`), поля `run_id`, `episode_id`, `mode`, `seed` (`null` при `--episode`), `config_version` (из `config` или `null`), `status`, `steps_used`, `inspection_steps`, `reward`, `valid`, `error`, `metrics`, `episode_sha256` (отпечаток эпизода, раздел 15; агенту не передаётся). Схема строки — `grader_log.schema.json`.

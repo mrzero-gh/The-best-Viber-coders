@@ -16,7 +16,7 @@ from pathlib import Path
 from common.jsonio import canonical_dumps
 from env.core import AuditCore
 from env.episode import load_public, load_truth
-from env.fingerprint import EpisodeIntegrityError, verify_episode
+from env.fingerprint import EpisodeIntegrityError, episode_fingerprint, public_hashes, verify_episode
 
 MAX_LINE = 1024 * 1024  # лимит длины строки команды, байт
 
@@ -70,7 +70,12 @@ class Server:
         try:
             if self.args.episode:
                 ep_dir = Path(self.args.episode)
-                fingerprint = verify_episode(ep_dir)
+                if self.args.trust_episode:
+                    # эпизод подал доверенный вызывающий (жюри: парные проверки меняют ID и порядок
+                    # в копии): отпечаток не сверяется, а считается по фактическим public-файлам
+                    fingerprint = episode_fingerprint(public_hashes(ep_dir))
+                else:
+                    fingerprint = verify_episode(ep_dir)
                 episode, truth = load_public(ep_dir), load_truth(ep_dir)
             else:
                 tmp = tempfile.mkdtemp(prefix="auditgym-")
@@ -188,6 +193,8 @@ def main(argv=None) -> int:
     # По умолчанию runs/; в контейнере с файловой системой только для чтения — AUDIT_GYM_RUNS_DIR=/tmp/runs
     ap.add_argument("--runs-dir", default=os.environ.get("AUDIT_GYM_RUNS_DIR") or "runs")
     ap.add_argument("--episode", default=None)
+    # только вместе с --episode: эпизод из каталога жюри, отпечаток пересчитывается, а не сверяется
+    ap.add_argument("--trust-episode", action="store_true")
     ap.add_argument("--grader", default=None)  # только для тестов
     ap.add_argument("--time-limit-s", type=float, default=None)  # только для тестов
     args = ap.parse_args(argv)

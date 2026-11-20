@@ -21,7 +21,8 @@ class EnvError(Exception):
 class AuditEnv:
     """Клиент в процессе агента. Ничего не хранит, кроме процесса сервера."""
 
-    def __init__(self, *, run_id=None, runs_dir=None, episode=None, grader=None, time_limit_s=None):
+    def __init__(self, *, run_id=None, runs_dir=None, episode=None, grader=None, time_limit_s=None,
+                 trust_episode=False):
         cmd = [sys.executable, "-m", "env.server"]
         if run_id is not None:
             cmd += ["--run-id", str(run_id)]
@@ -29,6 +30,8 @@ class AuditEnv:
             cmd += ["--runs-dir", str(runs_dir)]
         if episode is not None:
             cmd += ["--episode", str(episode)]
+        if trust_episode:
+            cmd += ["--trust-episode"]
         if grader is not None:
             cmd += ["--grader", grader]
         if time_limit_s is not None:
