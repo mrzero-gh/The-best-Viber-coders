@@ -17,6 +17,7 @@ import copy
 import http.server
 import json
 import os
+import re
 import socket
 import sys
 import tempfile
@@ -849,6 +850,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </footer>
 
   <script>
+    // Экранирование данных перед вставкой в HTML: траектории содержат произвольный текст агента
+    function esc(v) {
+      return String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    }
     let appData = window.__INITIAL_DATA__ || null;
     let currentEpisodeId = null;
     let currentTrajectory = [];
@@ -1001,8 +1006,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (!act) {
         actContent.innerHTML = `<p style="color: var(--text-muted)">Начальный сброс среды (env.reset). Агент получает задание и открытый манифест компании.</p>`;
       } else {
-        let html = `<div style="margin-bottom: 8px;"><strong>Вызов инструмента:</strong> <code class="mono" style="color: var(--primary)">${act.tool}(...)</code></div>`;
-        html += `<pre>${JSON.stringify(act.args, null, 2)}</pre>`;
+        let html = `<div style="margin-bottom: 8px;"><strong>Вызов инструмента:</strong> <code class="mono" style="color: var(--primary)">${esc(act.tool)}(...)</code></div>`;
+        html += `<pre>${esc(JSON.stringify(act.args, null, 2))}</pre>`;
         actContent.innerHTML = html;
       }
 
@@ -1012,10 +1017,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         const m = obs.manifest || {};
         obsContent.innerHTML = `
           <div style="display: flex; flex-direction: column; gap: 8px;">
-            <div><strong>Эпизод:</strong> <code class="mono">${m.episode_id || ''}</code></div>
-            <div><strong>Базовая валюта:</strong> <span class="tag tag-green">${m.base_currency}</span> | <strong>Пояс:</strong> ${m.timezone}</div>
-            <div><strong>Период:</strong> ${m.period_start?.slice(0, 10)} — ${m.period_end?.slice(0, 10)}</div>
-            <div><strong>Масштаб данных:</strong> ${m.counts?.invoices} счетов, ${m.counts?.payments} платежей, ${m.counts?.ledger_rows} проводок книги</div>
+            <div><strong>Эпизод:</strong> <code class="mono">${esc(m.episode_id || '')}</code></div>
+            <div><strong>Базовая валюта:</strong> <span class="tag tag-green">${esc(m.base_currency)}</span> | <strong>Пояс:</strong> ${esc(m.timezone)}</div>
+            <div><strong>Период:</strong> ${esc(m.period_start?.slice(0, 10))} — ${esc(m.period_end?.slice(0, 10))}</div>
+            <div><strong>Масштаб данных:</strong> ${esc(m.counts?.invoices)} счетов, ${esc(m.counts?.payments)} платежей, ${esc(m.counts?.ledger_rows)} проводок книги</div>
           </div>
         `;
       } else if (obs.kind === 'result') {
@@ -1023,9 +1028,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         if (obs.tool === 'list_records') {
           const recs = res.records || [];
           obsContent.innerHTML = `
-            <div><strong>Загружено записей:</strong> ${recs.length} из ${res.total} (таблица: <span class="tag tag-blue">${res.table}</span>)</div>
-            <div style="font-size: 11px; color: var(--text-muted); margin: 6px 0;">Следующий курсор: <code class="mono">${res.next_cursor || 'завершено'}</code></div>
-            <pre style="max-height: 200px;">${JSON.stringify(recs.slice(0, 3), null, 2)}${recs.length > 3 ? '\n... и ещё ' + (recs.length - 3) + ' записей' : ''}</pre>
+            <div><strong>Загружено записей:</strong> ${recs.length} из ${esc(res.total)} (таблица: <span class="tag tag-blue">${esc(res.table)}</span>)</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin: 6px 0;">Следующий курсор: <code class="mono">${esc(res.next_cursor || 'завершено')}</code></div>
+            <pre style="max-height: 200px;">${esc(JSON.stringify(recs.slice(0, 3), null, 2))}${recs.length > 3 ? '\n... и ещё ' + (recs.length - 3) + ' записей' : ''}</pre>
           `;
         } else if (obs.tool === 'get_document') {
           const doc = res.document || {};
@@ -1033,27 +1038,27 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           if (doc.line_items) {
             linesHtml = `<table style="margin-top: 8px;">
               <thead><tr><th>Позиция</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr></thead>
-              <tbody>${doc.line_items.map(li => `<tr><td>${li.description}</td><td class="mono">${li.quantity}</td><td class="mono">${li.unit_price_minor}</td><td class="mono">${li.amount_minor}</td></tr>`).join('')}</tbody>
+              <tbody>${doc.line_items.map(li => `<tr><td>${esc(li.description)}</td><td class="mono">${esc(li.quantity)}</td><td class="mono">${esc(li.unit_price_minor)}</td><td class="mono">${esc(li.amount_minor)}</td></tr>`).join('')}</tbody>
             </table>`;
           }
           obsContent.innerHTML = `
-            <div><strong>Первичный документ:</strong> <code class="mono">${doc.doc_id}</code> (${doc.doc_type || 'invoice'})</div>
-            <div><strong>Контрагент:</strong> ${doc.entity_id} | <strong>Сумма:</strong> <span class="mono" style="color: var(--primary); font-weight: bold">${doc.total_minor || doc.amount_minor} ${doc.currency}</span></div>
+            <div><strong>Первичный документ:</strong> <code class="mono">${esc(doc.doc_id)}</code> (${esc(doc.doc_type || 'invoice')})</div>
+            <div><strong>Контрагент:</strong> ${esc(doc.entity_id)} | <strong>Сумма:</strong> <span class="mono" style="color: var(--primary); font-weight: bold">${esc(doc.total_minor || doc.amount_minor)} ${esc(doc.currency)}</span></div>
             ${linesHtml}
           `;
         } else if (obs.tool === 'calculator') {
           obsContent.innerHTML = `
-            <div><strong>Выражение:</strong> <code class="mono">${res.expression}</code></div>
-            <div style="margin-top: 8px;"><strong>Результат (Decimal AST):</strong> <span class="tag tag-green mono" style="font-size: 14px;">${res.value}</span></div>
+            <div><strong>Выражение:</strong> <code class="mono">${esc(res.expression)}</code></div>
+            <div style="margin-top: 8px;"><strong>Результат (Decimal AST):</strong> <span class="tag tag-green mono" style="font-size: 14px;">${esc(res.value)}</span></div>
           `;
         } else {
-          obsContent.innerHTML = `<pre>${JSON.stringify(res, null, 2)}</pre>`;
+          obsContent.innerHTML = `<pre>${esc(JSON.stringify(res, null, 2))}</pre>`;
         }
       } else if (obs.kind === 'final') {
         obsContent.innerHTML = `
           <div style="text-align: center; padding: 20px 0;">
             <div style="font-size: 24px; font-weight: 800; color: var(--primary)">ЭПИЗОД ЗАВЕРШЁН</div>
-            <div style="margin-top: 8px; color: var(--text-muted)">Статус: <span class="tag tag-green">${obs.status}</span> | Использовано шагов: <strong>${obs.steps_used}</strong> / 100</div>
+            <div style="margin-top: 8px; color: var(--text-muted)">Статус: <span class="tag tag-green">${esc(obs.status)}</span> | Использовано шагов: <strong>${esc(obs.steps_used)}</strong> / 100</div>
           </div>
         `;
       }
@@ -1077,18 +1082,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         card.className = `finding-card ${isMatched ? 'tp' : 'fp'}`;
 
         const typeRu = TYPE_RU[f.type] || f.type;
-        const matchBadge = matcher ? (isMatched ? `<span class="tag tag-green">TP: ${matchedMap[idx]}</span>` : `<span class="tag tag-rose">FP: Не совпало</span>`) : '';
+        const matchBadge = matcher ? (isMatched ? `<span class="tag tag-green">TP: ${esc(matchedMap[idx])}</span>` : `<span class="tag tag-rose">FP: Не совпало</span>`) : '';
 
         card.innerHTML = `
           <div class="finding-header">
-            <span class="finding-type">${typeRu}</span>
+            <span class="finding-type">${esc(typeRu)}</span>
             ${matchBadge}
           </div>
-          <div class="finding-amount">${f.claimed_amount_minor.toLocaleString()} ${f.currency}</div>
-          <div class="finding-meta"><strong>Затронуто:</strong> ${(f.affected_ids || []).join(', ')}</div>
-          <div class="finding-meta" style="color: var(--text-muted); font-style: italic;">${f.explanation}</div>
+          <div class="finding-amount">${esc(Number(f.claimed_amount_minor).toLocaleString())} ${esc(f.currency)}</div>
+          <div class="finding-meta"><strong>Затронуто:</strong> ${esc((f.affected_ids || []).join(', '))}</div>
+          <div class="finding-meta" style="color: var(--text-muted); font-style: italic;">${esc(f.explanation)}</div>
           <div class="pills-container">
-            ${(f.evidence_ids || []).map(e => `<span class="pill">${e}</span>`).join('')}
+            ${(f.evidence_ids || []).map(e => `<span class="pill">${esc(e)}</span>`).join('')}
           </div>
         `;
         grid.appendChild(card);
@@ -1107,11 +1112,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         <tbody>
           ${truth.issues.map(iss => `
             <tr>
-              <td class="mono"><strong>${iss.issue_id}</strong></td>
-              <td>${TYPE_RU[iss.type] || iss.type}</td>
-              <td class="mono">${iss.expected_amount_minor.toLocaleString()} ${iss.currency}</td>
-              <td class="mono">${(iss.affected_ids || []).join(', ')}</td>
-              <td class="mono" style="font-size: 11px;">${iss.evidence_sets.map(s => `[${s.join(', ')}]`).join(' OR ')}</td>
+              <td class="mono"><strong>${esc(iss.issue_id)}</strong></td>
+              <td>${esc(TYPE_RU[iss.type] || iss.type)}</td>
+              <td class="mono">${esc(Number(iss.expected_amount_minor).toLocaleString())} ${esc(iss.currency)}</td>
+              <td class="mono">${esc((iss.affected_ids || []).join(', '))}</td>
+              <td class="mono" style="font-size: 11px;">${iss.evidence_sets.map(s => `[${esc(s.join(', '))}]`).join(' OR ')}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -1124,9 +1129,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           <tbody>
             ${truth.distractors.map(d => `
               <tr>
-                <td class="mono">${d.distractor_id}</td>
-                <td><span class="tag tag-amber">${DISTRACTOR_RU[d.kind] || d.kind}</span></td>
-                <td class="mono">${(d.record_ids || []).join(', ')}</td>
+                <td class="mono">${esc(d.distractor_id)}</td>
+                <td><span class="tag tag-amber">${esc(DISTRACTOR_RU[d.kind] || d.kind)}</span></td>
+                <td class="mono">${esc((d.record_ids || []).join(', '))}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -1147,19 +1152,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
       const rows = data[tableName] || [];
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td style="color: var(--text-muted)">Нет данных в таблице ${tableName}</td></tr>`;
+        tbody.innerHTML = `<tr><td style="color: var(--text-muted)">Нет данных в таблице ${esc(tableName)}</td></tr>`;
         return;
       }
 
       const keys = Object.keys(rows[0]);
-      thead.innerHTML = `<tr>${keys.map(k => `<th>${k}</th>`).join('')}</tr>`;
+      thead.innerHTML = `<tr>${keys.map(k => `<th>${esc(k)}</th>`).join('')}</tr>`;
 
       const displayRows = rows.slice(0, 50);
       tbody.innerHTML = displayRows.map(r => `
         <tr>${keys.map(k => {
           let val = r[k];
           if (typeof val === 'object' && val !== null) val = JSON.stringify(val);
-          return `<td class="mono">${val !== null ? val : 'null'}</td>`;
+          return `<td class="mono">${val !== null ? esc(val) : 'null'}</td>`;
         }).join('')}</tr>
       `).join('');
     }
@@ -1285,8 +1290,32 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 """
 
 
+_EPISODE_ID = re.compile(r"EP-[0-9A-HJKMNP-TV-Z]{8}")
+_LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+MAX_BODY = 64 * 1024
+
+
+def _hostname(host_header: str) -> str:
+    """Имя хоста из заголовка Host без порта (поддерживает [::1]:8080)."""
+    host = host_header.strip()
+    if host.startswith("["):
+        return host[1:].split("]", 1)[0]
+    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+
+
 class AuditUIRequestHandler(http.server.BaseHTTPRequestHandler):
     """Легковесный HTTP-обработчик для UI и REST API."""
+
+    def _request_allowed(self) -> bool:
+        """API только для страниц самого дашборда: чужой Origin и подмена Host (DNS rebinding) запрещены."""
+        host = self.headers.get("Host") or ""
+        if self.server.server_address[0] in _LOOPBACK and _hostname(host) not in _LOOPBACK:
+            return False
+        origin = self.headers.get("Origin")
+        return origin is None or origin == "http://" + host
+
+    def _forbid(self):
+        self.send_error(403, "Forbidden")
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -1300,14 +1329,19 @@ class AuditUIRequestHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(HTML_TEMPLATE.encode("utf-8"))
             return
 
-        elif path == "/api/episodes":
+        if path.startswith("/api/") and not self._request_allowed():
+            self._forbid()
+            return
+
+        if path == "/api/episodes":
             episodes = get_available_episodes()
             self.send_json(episodes)
             return
 
         elif path == "/api/episode":
             ep_id = query.get("id", [""])[0]
-            details = get_episode_details(ep_id)
+            # только ID эпизода из episodes/, никаких путей и шаблонов glob
+            details = get_episode_details(ep_id) if _EPISODE_ID.fullmatch(ep_id) else None
             if details:
                 self.send_json(details)
             else:
@@ -1319,17 +1353,31 @@ class AuditUIRequestHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
-        content_length = int(self.headers.get("Content-Length", 0))
+        if not self._request_allowed():
+            self._forbid()
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            content_length = -1
+        if not 0 <= content_length <= MAX_BODY:
+            self.send_error(413, "Request too large")
+            return
         post_data = self.rfile.read(content_length)
 
         try:
             req_json = json.loads(post_data.decode("utf-8"))
         except Exception:
             req_json = {}
+        if not isinstance(req_json, dict):
+            req_json = {}
 
         if path == "/api/run":
             ep_id = req_json.get("episode_id")
             policy = req_json.get("policy", "smart")
+            if not isinstance(ep_id, str) or not _EPISODE_ID.fullmatch(ep_id):
+                self.send_error(404, "Episode not found")
+                return
             details = get_episode_details(ep_id)
             if not details:
                 self.send_error(404, "Episode not found")
@@ -1343,7 +1391,11 @@ class AuditUIRequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         elif path == "/api/generate":
-            seed = int(req_json.get("seed", 42))
+            try:
+                seed = int(req_json.get("seed", 42))
+            except (TypeError, ValueError):
+                self.send_error(400, "Bad seed")
+                return
             out_dir = ROOT / "episodes" / "train"
             out_dir.mkdir(parents=True, exist_ok=True)
             ep_path = generate_episode(seed, TRAIN_CONFIG, out_dir)
@@ -1364,7 +1416,6 @@ class AuditUIRequestHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -1398,7 +1449,9 @@ def export_standalone_html(output_path: Path, episode_id: Optional[str] = None) 
         "current_episode": current_ep,
     }
 
-    embedded_script = f"\n<script>window.__INITIAL_DATA__ = {json.dumps(initial_data, ensure_ascii=False)};</script>\n"
+    # "</" внутри JSON закрыл бы тег <script> (данные агента в траекториях произвольные)
+    payload = json.dumps(initial_data, ensure_ascii=False).replace("</", "<\\/")
+    embedded_script = f"\n<script>window.__INITIAL_DATA__ = {payload};</script>\n"
     html_out = HTML_TEMPLATE.replace("<body>", f"<body>{embedded_script}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
