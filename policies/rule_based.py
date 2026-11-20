@@ -99,7 +99,8 @@ class RuleBasedPolicy(Policy):
                     # Все 4 таблицы загружены
                     candidates = self._find_duplicate_doc_ids()
                     if not self.naive and candidates and remaining > len(candidates) + 5:
-                        self.pending_docs_to_fetch = list(candidates)
+                        # sorted: порядок не должен зависеть от PYTHONHASHSEED (воспроизводимость траекторий)
+                        self.pending_docs_to_fetch = sorted(candidates)
                         next_doc = self.pending_docs_to_fetch.pop(0)
                         return {"tool": "get_document", "args": {"doc_id": next_doc}}
                     else:

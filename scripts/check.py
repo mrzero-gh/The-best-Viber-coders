@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,8 +36,16 @@ def _docker() -> str:
 
 
 def run_local() -> int:
-    """pytest в текущем окружении."""
-    return subprocess.call([sys.executable, "-m", "pytest", "-q"])
+    """pytest в текущем окружении.
+
+    Временные папки тестов - в собственной новой папке (--basetemp): общая системная
+    pytest-of-<user> на некоторых Windows-машинах недоступна (PermissionError).
+    """
+    base = tempfile.mkdtemp(prefix="audit-gym-pytest-")
+    try:
+        return subprocess.call([sys.executable, "-m", "pytest", "-q", "--basetemp", base])
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
 
 
 def run_docker() -> int:
