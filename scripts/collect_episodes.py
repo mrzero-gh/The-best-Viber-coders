@@ -121,8 +121,8 @@ def generate_and_collect(train_count: int = 10, dev_count: int = 10, base_seed: 
     master_traj = ROOT / "episodes" / "trajectories.jsonl"
     root_traj = ROOT / "trajectories.jsonl"
     content = "".join(canonical_dumps(item) + "\n" for item in all_trajectories)
-    master_traj.write_text(content, encoding="utf-8")
-    root_traj.write_text(content, encoding="utf-8")
+    master_traj.write_text(content, encoding="utf-8", newline="\n")
+    root_traj.write_text(content, encoding="utf-8", newline="\n")
     print(f"Всего шагов траекторий сохранено в {master_traj} и {root_traj}: {len(all_trajectories)}")
 
 

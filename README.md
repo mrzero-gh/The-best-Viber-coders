@@ -21,7 +21,7 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 
-# Единая команда проверки (642 теста)
+# Единая команда проверки (все тесты, около 800)
 python -m scripts.check
 ```
 
@@ -46,7 +46,7 @@ docker run --rm --network none --read-only --tmpfs /tmp --cpus 2 --memory 4g -e 
 
 | Команда | Описание |
 |---|---|
-| `python -m scripts.check` | Полный запуск pytest по всем 671 тестам проекта (единая команда проверки) |
+| `python -m scripts.check` | Полный запуск pytest по всем тестам проекта (единая команда проверки) |
 | `python -m scripts.demo` | Интерактивная демонстрация работы среды для жюри (сценарий на 2–3 мин) |
 | `python -m scripts.jury` | Экзаменационный прогон 4 базовых политик методикой жюри с боевым оценщиком |
 | `python -m scripts.plot_complexity` | Построение кривой сложности и сохранение `docs/complexity_curve.png` |
