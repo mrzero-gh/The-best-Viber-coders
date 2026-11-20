@@ -8,7 +8,8 @@ Python 3.11+. Общие схемы, генератор, среда и поли�
 ```python
 from grader.evaluate import evaluate
 
-result = evaluate(findings_obj, truth, episode_id, inspection_steps)
+result = evaluate(findings_obj, truth, episode_id, inspection_steps, public_ids=episode.public_ids())
+# public_ids: ID открытых записей и документов; несуществующее доказательство -> FP
 # {"valid": bool, "reward": float, "error": str | None,
 #  "metrics": {"tp", "fp", "fn", "precision", "recall", "f1"}}
 ```

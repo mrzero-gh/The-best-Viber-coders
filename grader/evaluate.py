@@ -4,12 +4,15 @@ from grader.reward import f1_score, precision, recall, terminal_reward
 from grader.validation import findings_error, validate_truth
 
 
-def evaluate(findings_obj, truth: dict, episode_id: str, inspection_steps: int) -> dict:
+def evaluate(findings_obj, truth: dict, episode_id: str, inspection_steps: int,
+             public_ids=None) -> dict:
     """Оценивает любой JSON-ответ агента, не изменяя входы.
 
     Результат не содержит issue_id, доказательств или сумм эталона. В eval
     сервер сохраняет его у себя; в train отдаёт только reward и metrics.
     Некорректный эталон/счётчик шагов вызывает ValueError на стороне сервера.
+    public_ids - множество ID открытых записей и документов эпизода: вывод со ссылкой на
+    отсутствующее доказательство не сопоставляется (FP). None - без этой проверки.
     """
     if type(inspection_steps) is not int or inspection_steps < 0:
         raise ValueError("inspection_steps must be a non-negative integer")
@@ -21,7 +24,7 @@ def evaluate(findings_obj, truth: dict, episode_id: str, inspection_steps: int) 
             "metrics": {"tp": 0, "fp": 0, "fn": len(truth["issues"]),
                         "precision": 0.0, "recall": 0.0, "f1": 0.0},
         }
-    matched = match(findings_obj["findings"], truth["issues"])
+    matched = match(findings_obj["findings"], truth["issues"], public_ids)
     tp, fp, fn = matched["tp"], matched["fp"], matched["fn"]
     f1 = f1_score(tp, fp, fn)
     return {

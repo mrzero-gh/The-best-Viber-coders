@@ -22,8 +22,9 @@ class FakeGrader:
         self.calls = []
         self.valid = valid
 
-    def __call__(self, findings_obj, truth, episode_id, inspection_steps):
+    def __call__(self, findings_obj, truth, episode_id, inspection_steps, public_ids=None):
         self.calls.append((findings_obj, truth, episode_id, inspection_steps))
+        self.public_ids = public_ids
         metrics = {"tp": 1, "fp": 0, "fn": 0, "precision": 1.0, "recall": 1.0, "f1": 1.0}
         return {"valid": self.valid, "reward": 0.5 if self.valid else -1.0, "error": None, "metrics": metrics}
 
@@ -185,6 +186,10 @@ def test_submit_train():
     f, truth, ep_id, steps = e.grader.calls[0]
     assert f == findings and ep_id == "EP-8K2M4Q7X" and steps == 2
     assert truth["issues"][0]["issue_id"] == "ISS-6M3KQ8WD"
+    # оценщику передаются ID открытых записей и документов (для проверки доказательств)
+    ids = e.grader.public_ids
+    assert {"L-1A2B3C4D", "INV-3HZ7QK2D", "PAY-9F4TX1MB", "DOC-7C2K9W4M"} <= ids
+    assert any(i.startswith("FX:") for i in ids) and "ISS-6M3KQ8WD" not in ids
     assert e.core.grader_result["reward"] == 0.5
 
 
