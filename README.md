@@ -13,11 +13,17 @@ pip install -r requirements.txt -r requirements-dev.txt
 python -m scripts.check
 ```
 
-Docker:
+Docker — проверка как у жюри, одной командой:
+
+```
+python -m scripts.check --docker
+```
+
+Собирает образ (Python 3.11.18, базовый образ закреплён по digest) и запускает все тесты в контейнере без сети, с файловой системой только для чтения, не от root, с ограничением 2 CPU / 4 ГБ. Внутри дополнительно проверяется, что сети действительно нет. То же вручную:
 
 ```
 docker build -t audit-gym .
-docker run --rm --network none audit-gym
+docker run --rm --network none --read-only --tmpfs /tmp --cpus 2 --memory 4g -e AUDIT_GYM_EXPECT_ISOLATION=1 audit-gym
 ```
 
 ## Структура

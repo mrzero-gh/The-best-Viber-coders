@@ -69,7 +69,8 @@
 
 ### Запуск сервера
 `python -m env.server [--run-id ID] [--runs-dir DIR] [--episode PATH] [--grader module:func] [--time-limit-s N]`
-- `--run-id` — по умолчанию `run-<YYYYmmdd-HHMMSS>-<pid>`; `--runs-dir` — по умолчанию `runs`.
+- `--run-id` — по умолчанию `run-<YYYYmmdd-HHMMSS>-<pid>`; `--runs-dir` — по умолчанию переменная окружения `AUDIT_GYM_RUNS_DIR`, иначе `runs` (в Docker-образе `AUDIT_GYM_RUNS_DIR=/tmp/runs`, потому что код смонтирован только для чтения).
+- Контейнер: `python -m scripts.check --docker` собирает образ и запускает проверку с `--network none --read-only --tmpfs /tmp --cpus 2 --memory 4g`, не от root; `tests/test_container.py` внутри подтверждает отсутствие сети и запись только в `/tmp`.
 - `--episode PATH` — готовый эпизод с диска (seed игнорируется, из `config` берётся только `mode`); для тестов и dev-эпизодов.
 - `--grader`, `--time-limit-s` — **только для тестов** (подмена оценщика и лимита времени).
 - Без `--episode` эпизод генерируется во временную папку; после загрузки `public` и `truth` в память папка удаляется целиком.
