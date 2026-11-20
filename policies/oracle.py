@@ -22,7 +22,9 @@ class OraclePolicy(Policy):
         self._submitted = False
 
     def set_truth(self, truth: dict) -> None:
+        self._initial_truth = truth
         self.truth = truth
+        self._submitted = False
 
     def act(self, observation: dict) -> dict:
         if self._submitted or observation.get("kind") == "final":
