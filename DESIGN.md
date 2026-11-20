@@ -218,6 +218,14 @@ python -m scripts.test_metamorphic
 # 6. Сборка 10 train + 10 dev эпизодов и реальных траекторий
 python -m scripts.collect_episodes
 
-# 7. Интерактивная демонстрация работы среды для жюри (2-3 минуты)
+# 7. Терминальный просмотрщик траекторий аудитора (пошаговый реплей с цветами и таблицами)
+python -m scripts.replay --episode EP-0HJPAE81
+python -m scripts.replay --list
+
+# 8. Запуск минималистичного веб-дашборда (или экспорт автономного HTML)
+python -m scripts.ui --open
+python -m scripts.ui --export docs/audit_ui.html
+
+# 9. Интерактивная демонстрация работы среды для жюри (2-3 минуты)
 python -m scripts.demo
 ```

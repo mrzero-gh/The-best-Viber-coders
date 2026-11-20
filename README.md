@@ -45,6 +45,10 @@ docker run --rm --network none audit-gym
 | `python -m scripts.plot_complexity` | Построение кривой сложности и сохранение `docs/complexity_curve.png` |
 | `python -m scripts.test_metamorphic` | Парные тесты со сменой ID и метаморфные проверки инвариантов |
 | `python -m scripts.collect_episodes` | Генерация 10 train + 10 dev эпизодов и сбор траекторий `episodes/` |
+| `python -m scripts.replay --episode EP-0HJPAE81` | Терминальный пошаговый просмотрщик траекторий аудитора (цвета, таблицы, доказательства) |
+| `python -m scripts.replay --list` | Просмотр списка всех сохранённых эпизодов, находок и наград |
+| `python -m scripts.ui --open` | Запуск красивого минималистичного веб-дашборда с авто-открытием в браузере |
+| `python -m scripts.ui --export docs/audit_ui.html` | Экспорт автономного HTML-дашборда (работает офлайн без сервера) |
 
 ---
 
@@ -115,7 +119,7 @@ docker run --rm --network none audit-gym
 | `policies/` | 4 адаптера базовых политик: Oracle, RuleBased (Smart/Simple), FlagAll, Random |
 | `episodes/` | 10 train + 10 dev эпизодов, `episodes/trajectories.jsonl` |
 | `trajectories.jsonl` | Корневой файл 499 реальных шагов взаимодействия |
-| `scripts/` | `check.py`, `demo.py`, `jury.py`, `plot_complexity.py`, `test_metamorphic.py`, `collect_episodes.py` |
+| `scripts/` | `check.py`, `demo.py`, `jury.py`, `plot_complexity.py`, `test_metamorphic.py`, `collect_episodes.py`, `replay.py`, `ui.py` |
 | `DESIGN.md` | Записка о дизайне, архитектуре, разборе сбоев и ограничениях |
 
 ---
