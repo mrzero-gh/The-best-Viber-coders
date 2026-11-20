@@ -155,7 +155,8 @@ python -m scripts.pair_check
 
 ## Документация
 
-- [docs/design.md](docs/design.md) — **Записка о дизайне и архитектуре** (архитектура политик, методика тестов, измеренный разбор сбоев, честные ограничения)
+- [docs/DESCRIPTION.md](docs/DESCRIPTION.md) — **Описание проекта на одну страницу**
+- [docs/design.md](docs/design.md) — **Записка о дизайне и архитектуре** (проверка по блокам жюри, matcher, разбор сбоев, галерея атак, ответы на 5 вопросов жюри, честные ограничения)
 - [docs/judge_adapter.md](docs/judge_adapter.md) — Адаптер жюри: точки входа, форматы, типы ошибок
 - [docs/contract.md](docs/contract.md) — Контракт среды Audit Gym (форматы, протокол, 5 действий, лимиты)
 - [docs/DATA.md](docs/DATA.md) — Спецификация данных и примеры

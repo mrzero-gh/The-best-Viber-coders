@@ -42,11 +42,12 @@ def main():
     time.sleep(1)
 
     t0 = time.time()
-    code = subprocess.call([sys.executable, "-m", "pytest", "-q"])
+    from scripts.check import run_local  # свой --basetemp: на Windows общий %TEMP%\pytest-of-* бывает недоступен
+    code = run_local()
     elapsed = time.time() - t0
 
     if code == 0:
-        print(f"\n[OK] Все 642 теста успешно пройдены за {elapsed:.2f} сек!")
+        print(f"\n[OK] Все тесты пройдены за {elapsed:.2f} сек!")
         slow_print("  - Среда и протокол JSON-RPC по stdin/stdout")
         slow_print("  - Калькулятор AST над Decimal без вызова eval()")
         slow_print("  - Галерея из 12+ атак на функцию награды (attacker resistance)")
@@ -69,9 +70,19 @@ def main():
     time.sleep(2)
 
     # -------------------------------------------------------------
-    # АКТ 3: Анализ кривой сложности
+    # АКТ 3: Парные проверки как у жюри
     # -------------------------------------------------------------
-    banner("Акт 3: Анализ кривой сложности (docs/complexity_curve.png)")
+    banner("Акт 3: Парные проверки жюри P01-P20 (scripts.pair_check)")
+    slow_print("Перестановка строк и смена ID в копии эпизода: ответ oracle и награда не должны меняться...")
+    code = subprocess.call([sys.executable, "-m", "scripts.pair_check"])
+    if code != 0:
+        return code
+    time.sleep(2)
+
+    # -------------------------------------------------------------
+    # АКТ 4: Анализ кривой сложности
+    # -------------------------------------------------------------
+    banner("Акт 4: Анализ кривой сложности (docs/complexity_curve.png)")
     slow_print("Генерация кривой сложности на боевом модуле grader.evaluate:evaluate...")
     code = subprocess.call([sys.executable, "-m", "scripts.plot_complexity", "--seeds", "2"])
     if code != 0:
