@@ -9,6 +9,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 
 from common.jsonio import write_jsonl
+from env.fingerprint import episode_fingerprint, public_hashes
 
 EPISODE_ID = "EP-8K2M4Q7X"
 OUT_ROOT = Path(__file__).resolve().parent / "mini"
@@ -150,7 +151,10 @@ def build(out_root: Path) -> Path:
         "mutations": [{"issue_id": "ISS-6M3KQ8WD", "type": "payment_allocation",
                        "changes": [{"table": "ledger", "record_id": "L-7TBC4X1P", "field": "account",
                                     "before": "1200", "after": "2900"}]}]})
-    _dump(priv / "generation.json", {"seed": None, "config": None, "generator_version": "fixture-mini"})
+    # отпечаток считается по уже записанным public-файлам (та же формула, что у генератора)
+    hashes = public_hashes(ep)
+    _dump(priv / "generation.json", {"seed": None, "config": None, "generator_version": "fixture-mini",
+                                     "public_sha256": hashes, "episode_sha256": episode_fingerprint(hashes)})
     return ep
 
 

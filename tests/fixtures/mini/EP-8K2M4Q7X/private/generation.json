@@ -1,5 +1,14 @@
 {
   "config": null,
+  "episode_sha256": "ce777b8af25c3993f464ef03fa412688c79aed080f4fb242d3523cce01d1d9d9",
   "generator_version": "fixture-mini",
+  "public_sha256": {
+    "fx.csv": "e63047fd17c4702d11833155008f575c3aeed6579c76d0255932f473af308833",
+    "invoices.jsonl": "d7dc82557ed517571b8366e4eaa32ee98621bbfde5827bd858bfee6481e91118",
+    "ledger.csv": "86d4ed01542418836887984b39576a56da7f12d94c427617795e952800b8baab",
+    "manifest.json": "1de0e1f0c873419bd06dc99500c807fd109333779cfce07132f70bd869469414",
+    "payments.jsonl": "2282f57d7cf028aacd88fd8768786956d0cbe4d3ebd073094dd53af96f9df409",
+    "policy.json": "d6de3b54b42ff10f9404e52c626cc007faff308197f8e857f43e992cbd17f45f"
+  },
   "seed": null
 }
