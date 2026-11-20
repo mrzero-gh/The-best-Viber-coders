@@ -185,7 +185,8 @@ class Server:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="env.server")
     ap.add_argument("--run-id", default="run-%s-%d" % (time.strftime("%Y%m%d-%H%M%S"), os.getpid()))
-    ap.add_argument("--runs-dir", default="runs")
+    # По умолчанию runs/; в контейнере с файловой системой только для чтения — AUDIT_GYM_RUNS_DIR=/tmp/runs
+    ap.add_argument("--runs-dir", default=os.environ.get("AUDIT_GYM_RUNS_DIR") or "runs")
     ap.add_argument("--episode", default=None)
     ap.add_argument("--grader", default=None)  # только для тестов
     ap.add_argument("--time-limit-s", type=float, default=None)  # только для тестов

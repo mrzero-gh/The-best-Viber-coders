@@ -1,5 +1,19 @@
+# Не попадают в образ: окружения, git, кэши, результаты прогонов, настройки редакторов
 .venv
+venv
+.venv-*
 .git
-__pycache__
+.github
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.hypothesis
+.mypy_cache
+.coverage*
 runs
 tmp
+.tmp
+.claude
+.vscode
+.idea
+*.code-workspace
