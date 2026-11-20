@@ -221,7 +221,8 @@ def _make_entities(content, ids, archetype, base, foreign):
     return entities
 
 
-def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count, base_small=0):
+def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count, base_small=0,
+                 foreign_small=0):
     """Даты, контрагенты и число строк счетов. Первые n_pay будут оплачены — их даты
     не у самого конца периода. Короткие счета (1–2 строки) есть всегда, не только у дублей,
     чтобы краткость счёта не выдавала ошибку."""
@@ -234,10 +235,13 @@ def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count,
     n_small = min(max(small_count, n_inv // 6), n_inv - 1)
     small = set(content.sample(range(n_inv), n_small))
     base_entities = [e for e in entities if e["currency"] == ctx.base]
+    foreign_entities = [e for e in entities if e["currency"] != ctx.base]
     for k, i in enumerate(sorted(small)):
         drafts[i]["lines"] = content.randint(1, 2)
         if k < base_small:  # под повторяющуюся услугу: прошлый месяц без курса валюты
             drafts[i]["entity"] = content.choice(base_entities)
+        elif k < base_small + foreign_small and foreign_entities:  # под дубль с неверным курсом
+            drafts[i]["entity"] = content.choice(foreign_entities)
     pay_rows = sum(2 if d["entity"]["currency"] == ctx.base else 3 for d in drafts if d["paid"])
     growable = [d for i, d in enumerate(drafts) if i not in small]
     extra_lines = max(0, target_rows - pay_rows - 2 * n_inv - sum(d["lines"] - 1 for d in drafts))
@@ -273,9 +277,11 @@ def _make_payment(content, ids, ctx, draft, inv):
             "invoice_refs": [{"invoice_id": inv["invoice_id"], "amount_minor": inv["total_minor"]}]}
 
 
-def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0, base_small=0) -> History:
+def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0, base_small=0,
+                foreign_small=0) -> History:
     """small_count — сколько счетов минимум оставить с 1–2 строками (кандидаты в дубли);
-    base_small — сколько из них сделать в базовой валюте (под legit_recurring)."""
+    base_small — сколько из них сделать в базовой валюте (под legit_recurring);
+    foreign_small — сколько в иностранной (под duplicate_invoice_wrong_fx)."""
     company = cfg["company"]
     tz = parse_tz(company["timezone"])
     base = company["base_currency"]
@@ -287,7 +293,8 @@ def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0
     fx_rows = _build_fx(content, ctx, foreign)
     entities = _make_entities(content, ids, company["archetype"], base, foreign)
     n_inv, n_pay, target_rows = plan_sizes(content, cfg, reserve_rows, reserve_docs)
-    drafts, small = _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count, base_small)
+    drafts, small = _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count,
+                                 base_small, foreign_small)
 
     goods = GOODS[company["archetype"]]
     period_label = f"{MONTHS_RU[start.month - 1]} {start.year}"

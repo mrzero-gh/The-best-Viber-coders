@@ -12,11 +12,11 @@ from pathlib import Path
 from common.jsonio import canonical_dumps, write_jsonl
 from generator.config import normalize_config
 from generator.distractors import make_distractors, plan_distractors
-from generator.errors import inject, plan_errors
+from generator.errors import inject, plan_errors, plan_interactions
 from generator.history import build_clean
 from generator.rng import IdFactory, stream
 
-GENERATOR_VERSION = "0.4.0"
+GENERATOR_VERSION = "0.5.0"
 SCHEMA_VERSION = "1.0"
 LEDGER_FIELDS = ["row_id", "timestamp", "account", "debit_minor", "credit_minor",
                  "currency", "entity_id", "invoice_id", "payment_id"]
@@ -123,22 +123,29 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
     dist_rng = stream(seed, "distractors")
     ids = IdFactory(stream(id_seed, "ids"))
     planned = plan_errors(cfg, errors)
+    iplanned = plan_interactions(cfg, errors, planned)
     dplanned = plan_distractors(cfg, dist_rng)
-    n_dup = planned["duplicate_invoice"]
+    n_dfx = iplanned["duplicate_invoice_wrong_fx"]
+    n_dup = planned["duplicate_invoice"] + n_dfx
+    n_one_row = (planned["payment_allocation"] + planned["fx_conversion"]
+                 + iplanned["partial_fx_payment_at_cutoff"])
     # разбитый платёж, возврат и прошлый повторяющийся счёт: +1 документ и до 3 строк каждый
     n_dst = dplanned["split_payment"] + dplanned["refund"] + dplanned["legit_recurring"]
     # дубль добавляет документ и до 3 строк; частичное распределение и FX платежа — до 1 строки
     h = build_clean(cfg, content, ids,
-                    reserve_rows=3 * (n_dup + n_dst) + planned["payment_allocation"] + planned["fx_conversion"],
+                    reserve_rows=3 * (n_dup + n_dst) + n_one_row,
                     reserve_docs=n_dup + n_dst, small_count=2 * n_dup + dplanned["legit_recurring"],
-                    base_small=dplanned["legit_recurring"])
+                    base_small=dplanned["legit_recurring"], foreign_small=2 * n_dfx)
     dm = make_distractors(h, dist_rng, ids, dplanned)
     clean_sha = history_digest(h)  # чистая история уже с отвлекающими случаями: они законны
-    inj = inject(h, cfg, errors, ids, planned, used=dm.used)
+    inj = inject(h, cfg, errors, ids, planned, used=dm.used, interactions=iplanned)
     injected = {t: sum(1 for i in inj.issues if i["type"] == t) for t in planned}
     dinjected = {k: sum(1 for x in dm.items if x["kind"] == k) for k in dplanned}
+    # сценарий засчитан, если обе его ошибки внесены (у каждой scenario = имя)
+    iinjected = {s: sum(1 for i in inj.issues if i["scenario"] == s) // 2 for s in iplanned}
     return write_episode(h, cfg, out_dir, seed, id_seed, inj.issues, dm.items, inj.mutations, clean_sha,
                          extra={"errors_planned": planned, "errors_injected": injected,
+                                "interactions_planned": iplanned, "interactions_injected": iinjected,
                                 "distractors_planned": dplanned, "distractors_injected": dinjected})
 
 

@@ -7,7 +7,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from generator.config import ERROR_TYPES
+from generator.config import ERROR_TYPES, INTERACTIONS
 from generator.history import fmt_ts, post_invoice, post_payment
 from generator.rng import IdFactory
 
@@ -28,6 +28,23 @@ def plan_errors(cfg, rng) -> dict:
         biggest = max(ERROR_TYPES, key=lambda k: counts[k])  # при равенстве — первый по порядку
         counts[biggest] -= 1
     return counts
+
+
+def plan_interactions(cfg, rng, counts) -> dict:
+    """Сколько совмещённых сценариев внести. Каждый даёт 2 ошибки и тоже входит в max_errors:
+    при превышении сначала уменьшаются одиночные ошибки, потом сценарии. counts меняется на месте."""
+    inter = {s: 0 for s in INTERACTIONS}
+    if cfg["clean"]:
+        return inter
+    for s in INTERACTIONS:
+        toggle = cfg["interactions"][s]
+        if toggle["enabled"]:
+            inter[s] = rng.randint(*toggle["count"])
+    while sum(counts.values()) + 2 * sum(inter.values()) > cfg["max_errors"]:
+        pool = counts if sum(counts.values()) else inter
+        names = ERROR_TYPES if pool is counts else INTERACTIONS
+        pool[max(names, key=lambda k: pool[k])] -= 1
+    return inter
 
 
 def _created(table, rows, after):
@@ -62,14 +79,15 @@ class Injector:
 
     # ---------- duplicate_invoice ----------
 
-    def duplicate_invoice(self, scenario=None):
+    def duplicate_invoice(self, scenario=None, foreign_only=False):
         """Копия счёта (новые invoice_id/doc_id, те же контрагент и строки), дата +0–5 дней,
         проведена в книге повторно. Возвращает (issue_id, дубль) или None, если нет кандидатов."""
         h, ctx = self.h, self.h.ctx
         end_day = ctx.period_end.date()
         small = set(h.small_invoice_ids)
         cands = [inv for inv in h.invoices
-                 if inv["invoice_id"] in small and inv["invoice_id"] not in self.used]
+                 if inv["invoice_id"] in small and inv["invoice_id"] not in self.used
+                 and (not foreign_only or inv["currency"] != ctx.base)]
         if not cands:
             return None
         src = self.rng.choice(cands)
@@ -93,6 +111,56 @@ class Injector:
 
     # ---------- payment_allocation ----------
 
+    def _partial(self, total):
+        """Сколько разнесено в книге: ничего (1 из 4) или 20–80 %, всегда меньше total."""
+        if self.rng.randint(1, 4) == 1:
+            return 0
+        return min(total * self.rng.randint(20, 80) // 100, total - 1)
+
+    def _allocation_issue(self, payment, allocated, rows, changes, scenario):
+        ref = payment["invoice_refs"][0]
+        evidence = [payment["doc_id"]] + [r["row_id"] for r in rows]
+        return self._add("payment_allocation", [ref["invoice_id"], payment["payment_id"]],
+                         ref["amount_minor"] - allocated, payment["currency"], [evidence], changes, scenario)
+
+    # ---------- совмещённые сценарии (раздел 11) ----------
+
+    def partial_fx_payment_at_cutoff(self):
+        """Валютный платёж с датой после конца периода проведён в периоде и разнесён частично.
+        Две ошибки: period_cutoff [payment] и payment_allocation [invoice, payment]."""
+        h, ctx = self.h, self.h.ctx
+        cands = [p for p in h.payments if p["amount_minor"] > 0 and len(p["invoice_refs"]) == 1
+                 and p["currency"] != ctx.base and self._free(p)]
+        if not cands:
+            return None
+        pay = self.rng.choice(cands)
+        ref = pay["invoice_refs"][0]
+        allocated = self._partial(ref["amount_minor"])
+        name = "partial_fx_payment_at_cutoff"
+        cut = self.period_cutoff(scenario=name, doc=pay, after_end=True,
+                                 allocated={ref["invoice_id"]: allocated})
+        rows = [r for r in h.ledger if r["payment_id"] == pay["payment_id"]]
+        changes = [{"table": "ledger", "record_id": pay["payment_id"],
+                    "field": "allocated_minor:" + ref["invoice_id"], "before": ref["amount_minor"],
+                    "after": allocated}]
+        alloc = self._allocation_issue(pay, allocated, rows, changes, name)
+        return cut, alloc
+
+    def duplicate_invoice_wrong_fx(self):
+        """Дубль валютного счёта, ещё и пересчитанный по неверному курсу.
+        Две ошибки: duplicate_invoice [оригинал, дубль] и fx_conversion [дубль]."""
+        name = "duplicate_invoice_wrong_fx"
+        made = self.duplicate_invoice(scenario=name, foreign_only=True)
+        if made is None:
+            return None
+        dup_issue, dup = made
+        self.used.discard(dup["invoice_id"])  # дубль свободен только для своей FX-ошибки
+        fx = self.fx_conversion(scenario=name, doc=dup)
+        if fx is None:  # курс не дал заметного расхождения: остаётся обычный дубль
+            self.used.add(dup["invoice_id"])
+            next(i for i in self.issues if i["issue_id"] == dup_issue)["scenario"] = None
+        return dup_issue, fx
+
     def payment_allocation(self, scenario=None, payment=None):
         """По выписке платёж закрывает счёт целиком, а в книге на 1200 разнесена часть или ничего;
         остаток — на 2900. Возвращает issue_id или None."""
@@ -108,11 +176,7 @@ class Injector:
         pid = payment["payment_id"]
         ref = payment["invoice_refs"][0]
         total = ref["amount_minor"]
-        if self.rng.randint(1, 4) == 1:
-            allocated = 0  # не разнесено вовсе
-        else:
-            allocated = total * self.rng.randint(20, 80) // 100
-        allocated = min(allocated, total - 1)
+        allocated = self._partial(total)
         by_id = {inv["invoice_id"]: inv for inv in h.invoices}
         old = [r for r in h.ledger if r["payment_id"] == pid]
         h.ledger = [r for r in h.ledger if r["payment_id"] != pid]
@@ -122,9 +186,7 @@ class Injector:
         changes = ([{"table": "ledger", "record_id": pid, "field": f"allocated_minor:{ref['invoice_id']}",
                      "before": total, "after": allocated}]
                    + _deleted(old, pid) + _created("ledger", new, pid))
-        evidence = [payment["doc_id"]] + [r["row_id"] for r in new]
-        return self._add("payment_allocation", [ref["invoice_id"], pid], total - allocated,
-                         payment["currency"], [evidence], changes, scenario)
+        return self._allocation_issue(payment, allocated, new, changes, scenario)
 
 
     # ---------- общие помощники ----------
@@ -140,7 +202,7 @@ class Injector:
     def _free(self, doc):
         return not (self._linked(doc) & self.used)
 
-    def _repost(self, doc, posted_at=None, rate=None):
+    def _repost(self, doc, posted_at=None, rate=None, allocations=None):
         """Удаляет проводки документа и проводит его заново с переопределениями."""
         h, ctx = self.h, self.h.ctx
         if "payment_id" in doc:
@@ -149,7 +211,8 @@ class Injector:
             by_id = {inv["invoice_id"]: inv for inv in h.invoices}
             old = [r for r in h.ledger if mine(r)]
             h.ledger = [r for r in h.ledger if not mine(r)]
-            new = post_payment(doc, ctx, self.ids, by_id, posted_at=posted_at, rate=rate)
+            new = post_payment(doc, ctx, self.ids, by_id, posted_at=posted_at, rate=rate,
+                               allocations=allocations)
         else:
             def mine(r):
                 return r["invoice_id"] == doc["invoice_id"] and r["payment_id"] is None
@@ -233,7 +296,7 @@ class Injector:
                                      hour=self.rng.randint(9, 18), minute=self.rng.randint(0, 59))
         return fmt_ts(t)
 
-    def period_cutoff(self, scenario=None, doc=None, after_end=None):
+    def period_cutoff(self, scenario=None, doc=None, after_end=None, allocated=None):
         """Дата документа вне периода, а проводки остались внутри периода (по прежней дате)."""
         h = self.h
         if doc is None:
@@ -253,7 +316,7 @@ class Injector:
             doc["due_at"] = fmt_ts(h.ctx.local_dt(new_ts) + timedelta(days=30))
         key = self._doc_key(doc)
         self.used |= self._linked(doc)
-        old, new = self._repost(doc, posted_at=posted_at)
+        old, new = self._repost(doc, posted_at=posted_at, allocations=allocated)
         changes = ([{"table": "payments" if is_pay else "invoices", "record_id": key, "field": field,
                      "before": posted_at, "after": new_ts}]
                    + _deleted(old, key) + _created("ledger", new, key))
@@ -262,13 +325,17 @@ class Injector:
         return self._add("period_cutoff", [key], abs(amount), doc["currency"], evidence, changes, scenario)
 
 
-def inject(history, cfg, rng, ids, counts, used=()) -> Injector:
+def inject(history, cfg, rng, ids, counts, used=(), interactions=None) -> Injector:
     """Вносит запланированные ошибки. Если кандидатов не хватило — вносит, сколько получилось.
 
     used — ID документов отвлекающих случаев: ошибки их не трогают.
     """
     inj = Injector(history, rng, ids)
     inj.used = set(used)
+    # сначала сценарии: им нужны особые кандидаты (валютные платежи и короткие валютные счета)
+    for name in INTERACTIONS:
+        for _ in range((interactions or {}).get(name, 0)):
+            getattr(inj, name)()
     for _ in range(counts["duplicate_invoice"]):
         inj.duplicate_invoice()
     for _ in range(counts["payment_allocation"]):
