@@ -5,12 +5,14 @@
 (type, affected_ids) уникальна, а доказательства не пересекаются.
 """
 from datetime import timedelta
+from decimal import Decimal
 
 from generator.config import ERROR_TYPES
 from generator.history import fmt_ts, post_invoice, post_payment
 from generator.rng import IdFactory
 
 TOLERANCE_MINOR = 1
+MIN_FX_GAP_MINOR = 100  # расхождение FX много больше допуска: не путается с округлением
 
 
 def plan_errors(cfg, rng) -> dict:
@@ -125,6 +127,141 @@ class Injector:
                          payment["currency"], [evidence], changes, scenario)
 
 
+    # ---------- общие помощники ----------
+
+    def _linked(self, doc):
+        """ID документа и связанных с ним (счёт и его платежи): их не трогают другие ошибки."""
+        if "payment_id" in doc:
+            return {doc["payment_id"]} | {r["invoice_id"] for r in doc["invoice_refs"]}
+        iid = doc["invoice_id"]
+        return {iid} | {p["payment_id"] for p in self.h.payments
+                        if any(r["invoice_id"] == iid for r in p["invoice_refs"])}
+
+    def _free(self, doc):
+        return not (self._linked(doc) & self.used)
+
+    def _repost(self, doc, posted_at=None, rate=None):
+        """Удаляет проводки документа и проводит его заново с переопределениями."""
+        h, ctx = self.h, self.h.ctx
+        if "payment_id" in doc:
+            def mine(r):
+                return r["payment_id"] == doc["payment_id"]
+            by_id = {inv["invoice_id"]: inv for inv in h.invoices}
+            old = [r for r in h.ledger if mine(r)]
+            h.ledger = [r for r in h.ledger if not mine(r)]
+            new = post_payment(doc, ctx, self.ids, by_id, posted_at=posted_at, rate=rate)
+        else:
+            def mine(r):
+                return r["invoice_id"] == doc["invoice_id"] and r["payment_id"] is None
+            old = [r for r in h.ledger if mine(r)]
+            h.ledger = [r for r in h.ledger if not mine(r)]
+            new = post_invoice(doc, ctx, self.ids, posted_at=posted_at, rate=rate)
+        h.ledger += new
+        return old, new
+
+    @staticmethod
+    def _doc_key(doc):
+        return doc.get("payment_id") or doc["invoice_id"]
+
+    def _pick_doc(self, invoices, payments):
+        """Случайно счёт или платёж; если нужного вида нет, берётся другой вид."""
+        first, second = (invoices, payments) if self.rng.randint(0, 1) == 0 else (payments, invoices)
+        pool = first or second
+        return self.rng.choice(pool) if pool else None
+
+    # ---------- fx_conversion ----------
+
+    def _wrong_rate(self, cur, day):
+        """Курс другой даты (±1–5 дней) или искажённый на 1–5 %. Возвращает (курс, описание)."""
+        ctx = self.h.ctx
+        correct = ctx.rate(cur, day)
+        if self.rng.randint(0, 1) == 0:
+            shift = self.rng.choice((-1, 1)) * self.rng.randint(1, 5)
+            other = day + timedelta(days=shift)
+            return ctx.fx[(other, cur)], "rate_of:" + other.isoformat()
+        pct = Decimal(self.rng.choice((-1, 1)) * self.rng.randint(100, 500)) / Decimal(10000)
+        return (correct * (1 + pct)).quantize(correct), "distorted:" + str(pct)
+
+    def fx_conversion(self, scenario=None, doc=None):
+        """Проводка валютного документа в базовой валюте по курсу другой даты или искажённому."""
+        h, ctx = self.h, self.h.ctx
+        if doc is None:
+            invs = [i for i in h.invoices if i["currency"] != ctx.base and self._free(i)]
+            pays = [p for p in h.payments if p["currency"] != ctx.base and p["amount_minor"] > 0
+                    and len(p["invoice_refs"]) == 1 and self._free(p)]
+            doc = self._pick_doc(invs, pays)
+            if doc is None:
+                return None
+        is_pay = "payment_id" in doc
+        amount = doc["amount_minor"] if is_pay else doc["total_minor"]
+        day = ctx.local_date(doc["timestamp"] if is_pay else doc["issued_at"])
+        correct = ctx.convert(amount, doc["currency"], day)
+        for _ in range(8):
+            rate, how = self._wrong_rate(doc["currency"], day)
+            posted = ctx.convert(amount, doc["currency"], day, rate)
+            if abs(posted - correct) >= MIN_FX_GAP_MINOR:
+                break
+        else:
+            return None
+        key = self._doc_key(doc)
+        self.used |= self._linked(doc)
+        old, new = self._repost(doc, rate=rate)
+        key_account = "1010" if is_pay else "1200"
+        key_row = next(r for r in new if r["account"] == key_account and r["debit_minor"] > 0)
+        fx_id = "FX:" + day.isoformat() + ":" + doc["currency"] + ":" + ctx.base
+        changes = ([{"table": "ledger", "record_id": key_row["row_id"], "field": "debit_minor",
+                     "before": correct, "after": posted},
+                    {"table": "fx", "record_id": fx_id, "field": "rate_used",
+                     "before": format(ctx.rate(doc["currency"], day), "f"),
+                     "after": format(rate, "f") + " (" + how + ")"}]
+                   + _deleted(old, key) + _created("ledger", new, key))
+        return self._add("fx_conversion", [key], abs(posted - correct), ctx.base,
+                         [[doc["doc_id"], key_row["row_id"], fx_id]], changes, scenario)
+
+    # ---------- period_cutoff ----------
+
+    def _outside_time(self, after_end=None):
+        """Рабочее время вне периода: после конца (0–6 дней) или до начала (1–7 дней)."""
+        ctx = self.h.ctx
+        if after_end is None:
+            after_end = self.rng.randint(0, 1) == 0
+        if after_end:
+            day = ctx.period_end.date() + timedelta(days=self.rng.randint(0, 6))
+        else:
+            day = ctx.period_start.date() - timedelta(days=self.rng.randint(1, 7))
+        t = ctx.period_start.replace(year=day.year, month=day.month, day=day.day,
+                                     hour=self.rng.randint(9, 18), minute=self.rng.randint(0, 59))
+        return fmt_ts(t)
+
+    def period_cutoff(self, scenario=None, doc=None, after_end=None):
+        """Дата документа вне периода, а проводки остались внутри периода (по прежней дате)."""
+        h = self.h
+        if doc is None:
+            paid = {r["invoice_id"] for p in h.payments for r in p["invoice_refs"]}
+            # оплаченный счёт после конца периода дал бы платёж раньше счёта: берём неоплаченные
+            invs = [i for i in h.invoices if i["invoice_id"] not in paid and self._free(i)]
+            pays = [p for p in h.payments if p["amount_minor"] > 0 and self._free(p)]
+            doc = self._pick_doc(invs, pays)
+            if doc is None:
+                return None
+        is_pay = "payment_id" in doc
+        field = "timestamp" if is_pay else "issued_at"
+        posted_at = doc[field]
+        new_ts = self._outside_time(after_end=True if is_pay else after_end)
+        doc[field] = new_ts
+        if not is_pay:
+            doc["due_at"] = fmt_ts(h.ctx.local_dt(new_ts) + timedelta(days=30))
+        key = self._doc_key(doc)
+        self.used |= self._linked(doc)
+        old, new = self._repost(doc, posted_at=posted_at)
+        changes = ([{"table": "payments" if is_pay else "invoices", "record_id": key, "field": field,
+                     "before": posted_at, "after": new_ts}]
+                   + _deleted(old, key) + _created("ledger", new, key))
+        evidence = [[doc["doc_id"], r["row_id"]] for r in sorted(new, key=lambda r: r["row_id"])]
+        amount = doc["amount_minor"] if is_pay else doc["total_minor"]
+        return self._add("period_cutoff", [key], abs(amount), doc["currency"], evidence, changes, scenario)
+
+
 def inject(history, cfg, rng, ids, counts) -> Injector:
     """Вносит запланированные ошибки. Если кандидатов не хватило — вносит, сколько получилось."""
     inj = Injector(history, rng, ids)
@@ -132,7 +269,10 @@ def inject(history, cfg, rng, ids, counts) -> Injector:
         inj.duplicate_invoice()
     for _ in range(counts["payment_allocation"]):
         inj.payment_allocation()
-    # fx_conversion и period_cutoff — этап 3
+    for _ in range(counts["fx_conversion"]):
+        inj.fx_conversion()
+    for _ in range(counts["period_cutoff"]):
+        inj.period_cutoff()
     inj.issues.sort(key=lambda x: x["issue_id"])
     inj.mutations.sort(key=lambda x: x["issue_id"])
     return inj

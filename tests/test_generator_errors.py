@@ -118,3 +118,89 @@ def test_deterministic_and_id_independent(tmp_path):
     sig = lambda d: sorted((i["type"], i["expected_amount_minor"], i["currency"]) for i in d["truth"]["issues"])
     assert sig(a) == sig(c)
     assert sorted(r["debit_minor"] for r in a["ledger"]) == sorted(r["debit_minor"] for r in c["ledger"])
+
+
+# ---------- этап 3: fx_conversion и period_cutoff (задача #11) ----------
+
+ON2 = {"enabled": True, "count": [2, 2]}
+ALL4 = {"config_version": "t-all", "mode": "train",
+        "errors": {"duplicate_invoice": ON2, "payment_allocation": ON2, "fx_conversion": ON2, "period_cutoff": ON2}}
+
+
+@pytest.fixture(scope="module", params=list(range(60, 72)))
+def ep4(request, tmp_path_factory):
+    return load(generate_episode(request.param, ALL4, tmp_path_factory.mktemp("a")))
+
+
+def _docs(d):
+    out = {i["invoice_id"]: i for i in d["invoices"]}
+    out.update({p["payment_id"]: p for p in d["payments"]})
+    return out
+
+
+def _in_period(d, ts):
+    m = d["manifest"]
+    return (datetime.fromisoformat(m["period_start"]) <= datetime.fromisoformat(ts)
+            < datetime.fromisoformat(m["period_end"]))
+
+
+def test_all_four_types_present(ep4):
+    got = defaultdict(int)
+    for i in ep4["truth"]["issues"]:
+        got[i["type"]] += 1
+    assert dict(got) == {"duplicate_invoice": 2, "payment_allocation": 2, "fx_conversion": 2, "period_cutoff": 2}
+    keys = [(i["type"], tuple(i["affected_ids"])) for i in ep4["truth"]["issues"]]
+    assert len(keys) == len(set(keys))
+    test_books_still_balanced(ep4)
+    test_evidence_is_public_and_small(ep4)
+
+
+def test_fx_is_provable_from_public(ep4):
+    docs, rows = _docs(ep4), {r["row_id"]: r for r in ep4["ledger"]}
+    base = ep4["manifest"]["base_currency"]
+    for issue in _by_type(ep4, "fx_conversion"):
+        (key,) = issue["affected_ids"]
+        doc = docs[key]
+        assert doc["currency"] != base and issue["currency"] == base
+        is_pay = key.startswith("PAY-")
+        ts, amount = (doc["timestamp"], doc["amount_minor"]) if is_pay else (doc["issued_at"], doc["total_minor"])
+        (ev,) = issue["evidence_sets"]
+        fx_id = f"FX:{ts[:10]}:{doc['currency']}:{base}"
+        assert fx_id in ev and doc["doc_id"] in ev
+        row = next(rows[x] for x in ev if x.startswith("L-"))
+        assert row["account"] == ("1010" if is_pay else "1200")
+        correct = _convert(amount, doc["currency"], ts[:10], ep4)
+        assert issue["expected_amount_minor"] == abs(row["debit_minor"] - correct) >= 100
+
+
+def test_cutoff_is_provable_from_public(ep4):
+    docs = _docs(ep4)
+    for issue in _by_type(ep4, "period_cutoff"):
+        (key,) = issue["affected_ids"]
+        doc = docs[key]
+        ts = doc["timestamp"] if key.startswith("PAY-") else doc["issued_at"]
+        assert not _in_period(ep4, ts), "документ вне периода"
+        rows = [r for r in ep4["ledger"] if (r["payment_id"] == key if key.startswith("PAY-")
+                                              else r["invoice_id"] == key and r["payment_id"] is None)]
+        assert rows and all(_in_period(ep4, r["timestamp"]) for r in rows), "проводки внутри периода"
+        amount = doc["amount_minor"] if key.startswith("PAY-") else doc["total_minor"]
+        assert issue["expected_amount_minor"] == abs(amount) and issue["currency"] == doc["currency"]
+        assert sorted(s[1] for s in issue["evidence_sets"]) == sorted(r["row_id"] for r in rows)
+
+
+def test_only_cutoff_documents_outside_period(ep4):
+    bad = {x for i in _by_type(ep4, "period_cutoff") for x in i["affected_ids"]}
+    for doc in ep4["invoices"]:
+        assert _in_period(ep4, doc["issued_at"]) or doc["invoice_id"] in bad
+    for doc in ep4["payments"]:
+        assert _in_period(ep4, doc["timestamp"]) or doc["payment_id"] in bad
+    for r in ep4["ledger"]:
+        assert _in_period(ep4, r["timestamp"])
+
+
+def test_kzt_only_company_skips_fx(tmp_path):
+    cfg = dict(ALL4, company={"archetype": "saas", "foreign_currencies": []})
+    d = load(generate_episode(3, cfg, tmp_path / "k"))
+    assert not _by_type(d, "fx_conversion")
+    assert d["generation"]["errors_injected"]["fx_conversion"] == 0
+    assert d["generation"]["errors_planned"]["fx_conversion"] == 2

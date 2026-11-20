@@ -15,7 +15,7 @@ from generator.errors import inject, plan_errors
 from generator.history import build_clean
 from generator.rng import IdFactory, stream
 
-GENERATOR_VERSION = "0.2.0"
+GENERATOR_VERSION = "0.3.0"
 SCHEMA_VERSION = "1.0"
 LEDGER_FIELDS = ["row_id", "timestamp", "account", "debit_minor", "credit_minor",
                  "currency", "entity_id", "invoice_id", "payment_id"]
@@ -122,8 +122,9 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
     ids = IdFactory(stream(id_seed, "ids"))
     planned = plan_errors(cfg, errors)
     n_dup = planned["duplicate_invoice"]
-    # дубль добавляет документ и до 3 строк, частичное распределение — до 1 строки
-    h = build_clean(cfg, content, ids, reserve_rows=3 * n_dup + planned["payment_allocation"],
+    # дубль добавляет документ и до 3 строк; частичное распределение и FX платежа — до 1 строки
+    h = build_clean(cfg, content, ids,
+                    reserve_rows=3 * n_dup + planned["payment_allocation"] + planned["fx_conversion"],
                     reserve_docs=n_dup, small_count=2 * n_dup)
     clean_sha = history_digest(h)
     inj = inject(h, cfg, errors, ids, planned)

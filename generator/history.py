@@ -60,6 +60,9 @@ class Context:
     def local_date(self, ts: str) -> date:
         return datetime.fromisoformat(ts).astimezone(self.tz).date()
 
+    def local_dt(self, ts: str) -> datetime:
+        return datetime.fromisoformat(ts).astimezone(self.tz)
+
     def in_period(self, ts: str) -> bool:
         return self.period_start <= datetime.fromisoformat(ts) < self.period_end
 
@@ -214,81 +217,90 @@ def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
     return n_inv, n_pay, rng.randint(lo, hi)
 
 
-def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0) -> History:
-    """small_count — сколько счетов оставить с 1–2 строками (дубль такого счёта не раздует книгу)."""
-    company = cfg["company"]
-    tz = parse_tz(company["timezone"])
-    base = company["base_currency"]
-    foreign = list(company["foreign_currencies"])
-    start, end = _period(content, tz)
-    exps = {c: exponent(c) for c in [base] + foreign}
-    ctx = Context(base=base, tz=tz, tz_name=company["timezone"], period_start=start,
-                  period_end=end, exps=exps)
-    episode_id = ids.new("EP")
-    fx_rows = _build_fx(content, ctx, foreign)
-
-    # контрагенты
-    share = FOREIGN_SHARE[company["archetype"]] if foreign else 0
+def _make_entities(content, ids, archetype, base, foreign):
+    share = FOREIGN_SHARE[archetype] if foreign else 0
     entities = []
     for _ in range(content.randint(6, 14)):
         cur = content.choice(foreign) if content.randint(1, 100) <= share else base
         entities.append({"entity_id": ids.new("E"), "currency": cur})
+    return entities
 
-    n_inv, n_pay, target_rows = plan_sizes(content, cfg, reserve_rows, reserve_docs)
-    days = (end.date() - start.date()).days
-    goods = GOODS[company["archetype"]]
-    period_label = f"{MONTHS_RU[start.month - 1]} {start.year}"
 
-    # даты и контрагенты счетов; первые n_pay будут оплачены, их даты не у самого конца периода
+def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count):
+    """Даты, контрагенты и число строк счетов. Первые n_pay будут оплачены — их даты
+    не у самого конца периода. Короткие счета (1–2 строки) есть всегда, не только у дублей,
+    чтобы краткость счёта не выдавала ошибку."""
+    days = (ctx.period_end.date() - ctx.period_start.date()).days
     drafts = []
     for i in range(n_inv):
-        day = start.date() + timedelta(days=content.randint(0, days - 3 if i < n_pay else days - 1))
-        drafts.append({"issued": _work_time(content, day, tz), "entity": content.choice(entities),
+        day = ctx.period_start.date() + timedelta(days=content.randint(0, days - 3 if i < n_pay else days - 1))
+        drafts.append({"issued": _work_time(content, day, ctx.tz), "entity": content.choice(entities),
                        "paid": i < n_pay, "lines": 1})
-    pay_rows = sum(2 if d["entity"]["currency"] == base else 3 for d in drafts if d["paid"])
-    small = set(content.sample(range(n_inv), min(small_count, n_inv - 1))) if small_count else set()
+    pay_rows = sum(2 if d["entity"]["currency"] == ctx.base else 3 for d in drafts if d["paid"])
+    n_small = min(max(small_count, n_inv // 6), n_inv - 1)
+    small = set(content.sample(range(n_inv), n_small))
     for i in sorted(small):
         drafts[i]["lines"] = content.randint(1, 2)
     growable = [d for i, d in enumerate(drafts) if i not in small]
     extra_lines = max(0, target_rows - pay_rows - 2 * n_inv - sum(d["lines"] - 1 for d in drafts))
     for _ in range(extra_lines):
         content.choice(growable)["lines"] += 1
+    return drafts, sorted(small)
 
-    invoices, payments = [], []
-    for d in drafts:
-        cur = d["entity"]["currency"]
-        lines = []
-        for _ in range(d["lines"]):
-            kzt_unit = Decimal(content.randint(2_000, 300_000))
-            unit = int((kzt_unit / KZT_VALUE.get(cur, Decimal(100)) * Decimal(10) ** exps[cur])
-                       .quantize(Decimal(1), rounding=ROUND_HALF_EVEN))
-            unit = max(unit, 100)
-            qty = content.randint(1, 12)
-            lines.append({"description": f"{content.choice(goods)}, {period_label}",
-                          "quantity": qty, "unit_price_minor": unit, "amount_minor": qty * unit})
-        invoices.append({
-            "doc_id": ids.new("DOC"), "invoice_id": ids.new("INV"),
-            "entity_id": d["entity"]["entity_id"], "issued_at": fmt_ts(d["issued"]),
-            "due_at": fmt_ts(d["issued"] + timedelta(days=30)), "currency": cur,
-            "total_minor": sum(x["amount_minor"] for x in lines), "line_items": lines})
 
-    for d, inv in zip(drafts, invoices):
-        if not d["paid"]:
-            continue
-        max_delta = (end.date() - d["issued"].date()).days - 1
-        pay_day = d["issued"].date() + timedelta(days=content.randint(1, min(15, max_delta)))
-        payments.append({
-            "doc_id": ids.new("DOC"), "payment_id": ids.new("PAY"),
-            "timestamp": fmt_ts(_work_time(content, pay_day, tz)), "currency": inv["currency"],
+def _make_invoice(content, ids, ctx, draft, goods, period_label):
+    cur = draft["entity"]["currency"]
+    lines = []
+    for _ in range(draft["lines"]):
+        kzt_unit = Decimal(content.randint(2_000, 300_000))
+        unit = int((kzt_unit / KZT_VALUE.get(cur, Decimal(100)) * Decimal(10) ** ctx.exps[cur])
+                   .quantize(Decimal(1), rounding=ROUND_HALF_EVEN))
+        qty = content.randint(1, 12)
+        unit = max(unit, 100)
+        lines.append({"description": f"{content.choice(goods)}, {period_label}",
+                      "quantity": qty, "unit_price_minor": unit, "amount_minor": qty * unit})
+    return {"doc_id": ids.new("DOC"), "invoice_id": ids.new("INV"),
+            "entity_id": draft["entity"]["entity_id"], "issued_at": fmt_ts(draft["issued"]),
+            "due_at": fmt_ts(draft["issued"] + timedelta(days=30)), "currency": cur,
+            "total_minor": sum(x["amount_minor"] for x in lines), "line_items": lines}
+
+
+def _make_payment(content, ids, ctx, draft, inv):
+    """Полная оплата счёта через 1–15 дней, внутри периода."""
+    max_delta = (ctx.period_end.date() - draft["issued"].date()).days - 1
+    pay_day = draft["issued"].date() + timedelta(days=content.randint(1, min(15, max_delta)))
+    return {"doc_id": ids.new("DOC"), "payment_id": ids.new("PAY"),
+            "timestamp": fmt_ts(_work_time(content, pay_day, ctx.tz)), "currency": inv["currency"],
             "amount_minor": inv["total_minor"],
-            "invoice_refs": [{"invoice_id": inv["invoice_id"], "amount_minor": inv["total_minor"]}]})
+            "invoice_refs": [{"invoice_id": inv["invoice_id"], "amount_minor": inv["total_minor"]}]}
+
+
+def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0) -> History:
+    """small_count — сколько счетов минимум оставить с 1–2 строками (кандидаты в дубли)."""
+    company = cfg["company"]
+    tz = parse_tz(company["timezone"])
+    base = company["base_currency"]
+    foreign = list(company["foreign_currencies"])
+    start, end = _period(content, tz)
+    ctx = Context(base=base, tz=tz, tz_name=company["timezone"], period_start=start,
+                  period_end=end, exps={c: exponent(c) for c in [base] + foreign})
+    episode_id = ids.new("EP")
+    fx_rows = _build_fx(content, ctx, foreign)
+    entities = _make_entities(content, ids, company["archetype"], base, foreign)
+    n_inv, n_pay, target_rows = plan_sizes(content, cfg, reserve_rows, reserve_docs)
+    drafts, small = _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count)
+
+    goods = GOODS[company["archetype"]]
+    period_label = f"{MONTHS_RU[start.month - 1]} {start.year}"
+    invoices = [_make_invoice(content, ids, ctx, d, goods, period_label) for d in drafts]
+    payments = [_make_payment(content, ids, ctx, d, inv) for d, inv in zip(drafts, invoices) if d["paid"]]
 
     by_id = {inv["invoice_id"]: inv for inv in invoices}
-    small_ids = [invoices[i]["invoice_id"] for i in sorted(small)]
     ledger = []
     for inv in invoices:
         ledger += post_invoice(inv, ctx, ids)
     for pay in payments:
         ledger += post_payment(pay, ctx, ids, by_id)
     return History(ctx=ctx, episode_id=episode_id, entities=entities, invoices=invoices,
-                   payments=payments, ledger=ledger, fx_rows=fx_rows, small_invoice_ids=small_ids)
+                   payments=payments, ledger=ledger, fx_rows=fx_rows,
+                   small_invoice_ids=[invoices[i]["invoice_id"] for i in small])
