@@ -37,7 +37,8 @@ _FINAL_ERRORS = {
 
 
 def _runs_dir() -> Path:
-    return Path(os.environ.get("AUDIT_GYM_RUNS_DIR") or "runs")
+    # абсолютный путь: сервер среды работает из корня репозитория, а не из папки вызывающего
+    return Path(os.environ.get("AUDIT_GYM_RUNS_DIR") or "runs").resolve()
 
 
 def _env_mode(mode) -> str:
@@ -61,7 +62,13 @@ def generate_episode(seed: int, config: dict, output_dir: str) -> None:
     try:
         ep_dir = _generate(seed, cfg, tmp)
         for part in ("public", "private"):
-            shutil.move(str(ep_dir / part), str(out / part))
+            target = out / part
+            # прошлый эпизод в той же папке заменяется целиком (иначе move вложит новый внутрь)
+            if target.is_dir() and not target.is_symlink():
+                shutil.rmtree(target)
+            elif target.exists() or target.is_symlink():
+                target.unlink()
+            shutil.move(str(ep_dir / part), str(target))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -103,7 +110,7 @@ class JudgeEnv:
     состояние прошлого эпизода не переживает reset."""
 
     def __init__(self, runs_dir=None):
-        self.runs_dir = Path(runs_dir) if runs_dir else _runs_dir()
+        self.runs_dir = Path(runs_dir).resolve() if runs_dir else _runs_dir()
         self.run_id = "judge-%s-%d" % (time.strftime("%Y%m%d-%H%M%S"), os.getpid())
         self._env = None
         self._mode = None
@@ -125,7 +132,8 @@ class JudgeEnv:
             # закрытый эпизод жюри: грузим именно его, ID не меняем, отпечаток пересчитываем
             if "config_version" in team:
                 server_cfg["config_version"] = team["config_version"]
-            self._restart(episode=episode_dir, trust_episode=True)
+            # путь относительно папки вызывающего: сервер запускается из корня репозитория
+            self._restart(episode=str(Path(episode_dir).resolve()), trust_episode=True)
         else:
             # открытый режим: генератор команды с переданными seed и team_config
             server_cfg = dict(team, mode=mode)
@@ -179,6 +187,9 @@ def score_episode(episode_dir: str, findings: dict, inspection_steps: int) -> di
     from env.fingerprint import episode_fingerprint, public_hashes
     from grader.evaluate import evaluate
     ep = Path(episode_dir)
+    # целое число шагов, пришедшее как float (3.0), принимаем как int
+    if isinstance(inspection_steps, float) and inspection_steps.is_integer():
+        inspection_steps = int(inspection_steps)
     public = load_public(ep)
     episode_id = public.manifest["episode_id"]
     # доказательство, которого нет в открытых данных, не сопоставляется (соглашение жюри, M04)

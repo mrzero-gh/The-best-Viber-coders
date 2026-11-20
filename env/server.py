@@ -3,6 +3,7 @@
 Протокол: одна JSON-строка на команду и на ответ (UTF-8, перевод строки LF), см. docs/contract.md, раздел 2.
 """
 import argparse
+import csv
 import importlib
 import json
 import os
@@ -14,7 +15,7 @@ import traceback
 from pathlib import Path
 
 from common.jsonio import canonical_dumps
-from env.core import AuditCore
+from env.core import AuditCore, GraderError
 from env.episode import load_public, load_truth
 from env.fingerprint import EpisodeIntegrityError, episode_fingerprint, public_hashes, verify_episode
 
@@ -26,7 +27,7 @@ _ERR = {
     "BAD_CONFIG": "Некорректный config: нужен объект, mode - train или eval.",
     "NO_EPISODE": "Эпизод не начат: сначала вызовите reset.",
     "GENERATION_FAILED": "Не удалось сгенерировать эпизод.",
-    "EPISODE_INVALID": "Эпизод повреждён: проверка отпечатка не пройдена.",
+    "EPISODE_INVALID": "Эпизод повреждён: проверка файлов или эталона не пройдена.",
     "INTERNAL": "Внутренняя ошибка сервера.",
 }
 
@@ -76,7 +77,11 @@ class Server:
                     fingerprint = episode_fingerprint(public_hashes(ep_dir))
                 else:
                     fingerprint = verify_episode(ep_dir)
-                episode, truth = load_public(ep_dir), load_truth(ep_dir)
+                try:
+                    episode, truth = load_public(ep_dir), load_truth(ep_dir)
+                except (OSError, ValueError, KeyError, TypeError, csv.Error):
+                    # файлы на месте, но не разбираются (обрезанный JSON, нет колонки, не число)
+                    raise EpisodeIntegrityError("public/private-файлы не разбираются.")
             else:
                 tmp = tempfile.mkdtemp(prefix="auditgym-")
                 try:
@@ -117,10 +122,16 @@ class Server:
                "reward": res.get("reward"), "valid": res.get("valid"),
                "error": res.get("error"), "metrics": res.get("metrics"),
                "episode_sha256": self.episode_sha256}
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.log_path, "a", encoding="utf-8", newline="\n") as f:
-            f.write(canonical_dumps(row) + "\n")
         self.logged = True
+        try:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.log_path, "a", encoding="utf-8", newline="\n") as f:
+                f.write(canonical_dumps(row) + "\n")
+        except OSError:
+            # журнал не должен отнимать у агента итог эпизода (например, файловая система только
+            # для чтения без AUDIT_GYM_RUNS_DIR)
+            if self.mode == "train":
+                traceback.print_exc(file=sys.stderr)
 
     # ---------- команды ----------
     def handle(self, line):
@@ -149,7 +160,11 @@ class Server:
                 raise _ProtoError("BAD_REQUEST")
             if self.core is None:
                 raise _ProtoError("NO_EPISODE")
-            obs, reward, term, trunc, info = self.core.step(msg["action"])
+            try:
+                obs, reward, term, trunc, info = self.core.step(msg["action"])
+            except GraderError:
+                self.logged = True  # оценки нет: эпизод закрыт без строки журнала
+                raise _ProtoError("EPISODE_INVALID")
             if self.core.finished and not self.logged:
                 self._write_log(obs["status"])
             self.send({"observation": obs, "reward": reward, "terminated": term,
