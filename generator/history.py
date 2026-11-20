@@ -58,6 +58,7 @@ class Context:
     exps: dict
     fx: dict = field(default_factory=dict)          # (date, currency) -> Decimal
     fx_str: dict = field(default_factory=dict)      # (date, currency) -> строка курса
+    start_value: dict = field(default_factory=dict)  # currency -> стартовая стоимость в KZT (для цен)
 
     def local_date(self, ts: str) -> date:
         return datetime.fromisoformat(ts).astimezone(self.tz).date()
@@ -170,6 +171,9 @@ def _build_fx(rng, ctx, currencies):
     value = {}
     for cur in [ctx.base] + currencies:
         value[cur] = KZT_VALUE.get(cur) or Decimal(rng.randint(1, 500))
+    # цены счетов считаются от той же стоимости, что и курсы (иначе для валют вне KZT_VALUE
+    # суммы в базовой валюте расходились бы в разы)
+    ctx.start_value = dict(value)
     rows = []
     day = first
     while day <= last:
@@ -268,7 +272,8 @@ def _make_invoice(content, ids, ctx, draft, goods, period_label):
     lines = []
     for _ in range(draft["lines"]):
         kzt_unit = Decimal(content.randint(2_000, 300_000))
-        unit = int((kzt_unit / KZT_VALUE.get(cur, Decimal(100)) * Decimal(10) ** ctx.exps[cur])
+        unit = int((kzt_unit / ctx.start_value.get(cur, KZT_VALUE.get(cur, Decimal(100)))
+                    * Decimal(10) ** ctx.exps[cur])
                    .quantize(Decimal(1), rounding=ROUND_HALF_EVEN))
         qty = content.randint(1, 12)
         unit = max(unit, 100)

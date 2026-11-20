@@ -155,13 +155,24 @@ def check_pair(n: int, base: Path, env) -> dict:
     return row
 
 
+def _parse_only(text: str, ap) -> list:
+    """--only P01,P06 -> [1, 6]; номер вне 1..20 - ошибка (P0 иначе молча стал бы P20)."""
+    nums = []
+    for part in text.split(","):
+        raw = part.strip().lstrip("Pp")
+        if not raw.isdigit() or not 1 <= int(raw) <= len(SCENARIOS):
+            ap.error("--only: пары P01-P%02d, получено %r" % (len(SCENARIOS), part.strip()))
+        nums.append(int(raw))
+    return nums
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="scripts.pair_check")
     ap.add_argument("--only", default=None, help="например P01,P06,P11")
     ap.add_argument("--json", default=None, help="сохранить отчёт в JSON")
     ap.add_argument("--keep", default=None, help="папка для эпизодов (по умолчанию временная)")
     a = ap.parse_args(argv)
-    nums = range(1, 21) if not a.only else [int(x.strip().lstrip("Pp")) for x in a.only.split(",")]
+    nums = range(1, 21) if not a.only else _parse_only(a.only, ap)
     base = Path(a.keep) if a.keep else Path(tempfile.mkdtemp(prefix="pair-check-"))
     rows = []
     try:

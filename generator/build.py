@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 import json
+import numbers
 from datetime import datetime
 from pathlib import Path
 
@@ -111,13 +112,26 @@ def write_episode(h, cfg, out_dir, seed, id_seed, issues=(), distractors=(), mut
     return ep
 
 
+def _int_seed(value, name: str) -> int:
+    """seed хэшируется как строка (generator.rng.stream): 5 и 5.0 дали бы разные эпизоды.
+    Поэтому принимаем только целое; целое число во float (5.0) приводим к int."""
+    if isinstance(value, bool):
+        raise ValueError(f"{name}: нужно целое число, а не bool")
+    if isinstance(value, numbers.Integral):
+        return int(value)  # и numpy.int64 -> обычный int
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    raise ValueError(f"{name}: нужно целое число")
+
+
 def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> "Path":
     """Генерирует эпизод в out_dir/<episode_id>/public и /private, возвращает путь эпизода.
 
     id_seed (по умолчанию = seed) задаёт только поток ids: меняет ID, но не содержание.
     """
     cfg = normalize_config(config)
-    id_seed = seed if id_seed is None else id_seed
+    seed = _int_seed(seed, "seed")
+    id_seed = seed if id_seed is None else _int_seed(id_seed, "id_seed")
     content = stream(seed, "content")
     errors = stream(seed, "errors")
     dist_rng = stream(seed, "distractors")

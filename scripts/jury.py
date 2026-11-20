@@ -93,6 +93,38 @@ def evaluate_policy_on_episode(policy, episode_path: Path, grader_str: str) -> d
     return {"reward": -1.0, "steps": steps, "time_s": elapsed, "p": 0.0, "r": 0.0, "f1": 0.0, "tp": 0, "fp": 0, "fn": 0}
 
 
+def _check_reproducibility(tpath: Path, grader_str: str):
+    """Тот же seed и config дают побайтно те же public-файлы, а повторный прогон SmartAuditor -
+    тот же итог. Возвращает (ok, пояснение)."""
+    cfg = _scenario_config(1, TEST_SCENARIOS[1])
+    eps = [generate_episode(7790, cfg, tpath / f"repro-{k}") for k in (1, 2)]
+    shas = [json.loads((e / "private" / "generation.json").read_text(encoding="utf-8"))["episode_sha256"]
+            for e in eps]
+    keys = ("reward", "steps", "tp", "fp", "fn", "f1")
+    runs = [evaluate_policy_on_episode(RuleBasedPolicy(naive=False), eps[0], grader_str) for _ in (1, 2)]
+    same_files = shas[0] == shas[1]
+    same_run = all(runs[0][k] == runs[1][k] for k in keys)
+    if same_files and same_run:
+        return True, "Повторная генерация seed 7790 и повторный прогон SmartAuditor совпали"
+    return False, ("Не воспроизводится: " + ", ".join(
+        x for x, bad in (("файлы эпизода", not same_files), ("итог прогона", not same_run)) if bad))
+
+
+def _scenario_config(scen_idx: int, scen: dict) -> dict:
+    return {
+        "config_version": f"jury-scen-{scen_idx}",
+        "mode": "train",
+        "clean": scen["clean"],
+        "company": {"archetype": "importer", "base_currency": "KZT", "timezone": "+05:00",
+                    "foreign_currencies": ["USD", "CNY", "EUR", "RUB", "JPY"]},
+        "size": {"ledger_rows": [200, 450], "documents": [25, 60]},
+        "errors": scen["errors"],
+        "interactions": scen["interactions"],
+        "distractors": scen["distractors"],
+        "max_errors": 10,
+    }
+
+
 def run_jury_evaluation(grader_str: str = "grader.evaluate:evaluate", seeds_per_scenario: int = 2):
     print("=================================================================")
     print("      AUDIT GYM — ЭКЗАМЕНАЦИОННЫЙ ПРОГОН МЕТОДИКОЙ ЖЮРИ         ")
@@ -108,24 +140,14 @@ def run_jury_evaluation(grader_str: str = "grader.evaluate:evaluate", seeds_per_
     }
 
     results = {name: {"reward": [], "f1": [], "p": [], "r": [], "steps": [], "time_s": []} for name in policies}
+    per_episode = []  # (номер сценария, чистый ли эпизод, политика, результат)
 
     with tempfile.TemporaryDirectory() as td:
         tpath = Path(td)
         total_episodes = 0
 
         for scen_idx, scen in enumerate(TEST_SCENARIOS, 1):
-            cfg = {
-                "config_version": f"jury-scen-{scen_idx}",
-                "mode": "train",
-                "clean": scen["clean"],
-                "company": {"archetype": "importer", "base_currency": "KZT", "timezone": "+05:00",
-                            "foreign_currencies": ["USD", "CNY", "EUR", "RUB", "JPY"]},
-                "size": {"ledger_rows": [200, 450], "documents": [25, 60]},
-                "errors": scen["errors"],
-                "interactions": scen["interactions"],
-                "distractors": scen["distractors"],
-                "max_errors": 10,
-            }
+            cfg = _scenario_config(scen_idx, scen)
 
             print(f"Сценарий {scen_idx}/4: {scen['name']}")
             for s_offset in range(seeds_per_scenario):
@@ -135,12 +157,15 @@ def run_jury_evaluation(grader_str: str = "grader.evaluate:evaluate", seeds_per_
 
                 for pol_name, policy in policies.items():
                     res = evaluate_policy_on_episode(policy, ep, grader_str)
+                    per_episode.append((scen_idx, scen["clean"], pol_name, res))
                     results[pol_name]["reward"].append(res["reward"])
                     results[pol_name]["f1"].append(res["f1"])
                     results[pol_name]["p"].append(res["p"])
                     results[pol_name]["r"].append(res["r"])
                     results[pol_name]["steps"].append(res["steps"])
                     results[pol_name]["time_s"].append(res["time_s"])
+
+        repro_ok, repro_note = _check_reproducibility(tpath, grader_str)
 
     print("\n" + "-" * 88)
     print(f"{'Политика':<18} | {'Precision':<10} | {'Recall':<8} | {'F1':<8} | {'Reward':<10} | {'Шаги':<6} | {'Время (с)':<9}")
@@ -155,9 +180,11 @@ def run_jury_evaluation(grader_str: str = "grader.evaluate:evaluate", seeds_per_
         print(f"{pol_name:<18} | {avg_p:<10.3f} | {avg_r:<8.3f} | {avg_f1:<8.3f} | {avg_rew:<10.3f} | {avg_st:<6.1f} | {avg_time:<9.3f}")
     print("-" * 88)
     print("Диагностическое примечание:")
-    print("  * В чистых эпизодах (Scenario 1) при пустом эталоне и пустых выводах F1=1.000,")
-    print("    а Precision и Recall равны 0.000 по математическому правилу контракта (0/0 = 0.0).")
-    print("  * На всех эпизодах с ошибками (Scenarios 2–4) Oracle достигает Precision=1.000, Recall=1.000, F1=1.000.\n")
+    print("  * В чистых эпизодах при пустом эталоне и пустых выводах F1=1.000, а Precision и Recall")
+    print("    равны 0.000 по правилу контракта (0/0 = 0.0), поэтому средние P и R ниже F1.")
+    oracle_err = [r for _, clean, name, r in per_episode if name == "OraclePolicy" and not clean]
+    perfect = sum(1 for r in oracle_err if r["p"] == r["r"] == r["f1"] == 1.0)
+    print(f"  * Эпизоды с ошибками: Oracle получил P=R=F1=1.000 на {perfect} из {len(oracle_err)}.\n")
 
     # -----------------------------------------------------------------
     # ЧЕСТНЫЙ ДИНАМИЧЕСКИЙ РАСЧЁТ БАЛЛОВ ПО ФАКТИЧЕСКИМ РЕЗУЛЬТАТАМ
@@ -182,14 +209,15 @@ def run_jury_evaluation(grader_str: str = "grader.evaluate:evaluate", seeds_per_
     pts_reward = 25 if attack_defended else 0
     note_reward = f"Атака «пометить всё» отбита (Reward = {flagall_avg_rew:.3f} <= -1.0)" if attack_defended else f"Уязвимость награды: {flagall_avg_rew:.3f}"
 
-    # 4. Воспроизводимость (15): стабильность детерминированных результатов
-    pts_repro = 15
-    note_repro = f"Детерминированный прогон {total_episodes} эпизодов с воспроизводимым результатом"
+    # 4. Воспроизводимость (15): тот же seed -> те же файлы, тот же прогон -> тот же итог
+    pts_repro = 15 if repro_ok else 0
+    note_repro = repro_note
 
     # 5. Инженерия (10): скорость работы в рамках регламента (<60 сек на эпизод)
     max_ep_time = max(max(data["time_s"]) for data in results.values())
     pts_eng = 10 if max_ep_time < 60.0 else 5
-    note_eng = f"Макс. время на эпизод {max_ep_time:.3f} с < 60 с лимита регламента"
+    note_eng = (f"Макс. время на эпизод {max_ep_time:.3f} с "
+                + ("< 60 с лимита регламента" if max_ep_time < 60.0 else ">= 60 с: лимит регламента превышен"))
 
     score_card = [
         ("1. Данные и эталон", 25, pts_data, note_data),
@@ -216,8 +244,10 @@ def main():
     parser = argparse.ArgumentParser(description="Запуск проверки методикой жюри")
     parser.add_argument("--grader", default="grader.evaluate:evaluate",
                         help="Путь к функции оценщика module:func (по умолчанию боевой оценщик grader.evaluate:evaluate)")
-    parser.add_argument("--seeds", type=int, default=2, help="Число seed на сценарий")
+    parser.add_argument("--seeds", type=int, default=2, help="Число seed на сценарий (не меньше 1)")
     args = parser.parse_args()
+    if args.seeds < 1:
+        parser.error("--seeds: нужно целое число не меньше 1")
 
     return run_jury_evaluation(args.grader, args.seeds)
 
