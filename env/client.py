@@ -52,8 +52,13 @@ class AuditEnv:
             raise EnvError(resp["error"]["code"], resp["error"]["message"])
         return resp
 
-    def reset(self, seed: int, config: dict) -> tuple[dict, dict]:
+    def reset(self, seed: int = 0, config: dict | None = None, *, options: dict | None = None) -> tuple[dict, dict]:
         """Начинает эпизод; возвращает (observation, info)."""
+        if config is None:
+            if options and isinstance(options, dict) and "config" in options:
+                config = options["config"]
+            else:
+                config = {"mode": "train"}
         r = self._call({"cmd": "reset", "seed": seed, "config": config})
         return r["observation"], r["info"]
 
