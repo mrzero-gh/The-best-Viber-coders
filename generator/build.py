@@ -11,10 +11,11 @@ from pathlib import Path
 
 from common.jsonio import canonical_dumps, write_jsonl
 from generator.config import normalize_config
+from generator.errors import inject, plan_errors
 from generator.history import build_clean
 from generator.rng import IdFactory, stream
 
-GENERATOR_VERSION = "0.1.0"
+GENERATOR_VERSION = "0.2.0"
 SCHEMA_VERSION = "1.0"
 LEDGER_FIELDS = ["row_id", "timestamp", "account", "debit_minor", "credit_minor",
                  "currency", "entity_id", "invoice_id", "payment_id"]
@@ -80,7 +81,7 @@ def history_digest(h) -> str:
 
 
 def write_episode(h, cfg, out_dir, seed, id_seed, issues=(), distractors=(), mutations=(),
-                  clean_sha256=None) -> Path:
+                  clean_sha256=None, extra=None) -> Path:
     ep = Path(out_dir) / h.episode_id
     pub, priv = ep / "public", ep / "private"
     pub.mkdir(parents=True, exist_ok=True)
@@ -105,7 +106,7 @@ def write_episode(h, cfg, out_dir, seed, id_seed, issues=(), distractors=(), mut
     fingerprint = hashlib.sha256(canonical_dumps(hashes).encode("utf-8")).hexdigest()
     _write_json(priv / "generation.json", {
         "seed": seed, "id_seed": id_seed, "config": cfg, "generator_version": GENERATOR_VERSION,
-        "public_sha256": hashes, "episode_sha256": fingerprint})
+        "public_sha256": hashes, "episode_sha256": fingerprint, **(extra or {})})
     return ep
 
 
@@ -117,9 +118,18 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
     cfg = normalize_config(config)
     id_seed = seed if id_seed is None else id_seed
     content = stream(seed, "content")
+    errors = stream(seed, "errors")
     ids = IdFactory(stream(id_seed, "ids"))
-    h = build_clean(cfg, content, ids)
-    return write_episode(h, cfg, out_dir, seed, id_seed)
+    planned = plan_errors(cfg, errors)
+    n_dup = planned["duplicate_invoice"]
+    # дубль добавляет документ и до 3 строк, частичное распределение — до 1 строки
+    h = build_clean(cfg, content, ids, reserve_rows=3 * n_dup + planned["payment_allocation"],
+                    reserve_docs=n_dup, small_count=2 * n_dup)
+    clean_sha = history_digest(h)
+    inj = inject(h, cfg, errors, ids, planned)
+    injected = {t: sum(1 for i in inj.issues if i["type"] == t) for t in planned}
+    return write_episode(h, cfg, out_dir, seed, id_seed, inj.issues, [], inj.mutations, clean_sha,
+                         extra={"errors_planned": planned, "errors_injected": injected})
 
 
 def main(argv=None) -> int:

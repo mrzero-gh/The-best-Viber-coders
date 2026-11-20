@@ -1,4 +1,4 @@
-"""Генератор, этап 1: чистая история (задача #3)."""
+"""Генератор, этап 1: чистая история (задача #3). Все конфиги здесь с clean: true."""
 import csv
 import json
 import re
@@ -15,15 +15,15 @@ from generator.config import ConfigError, normalize_config
 
 SCHEMAS = Path(__file__).resolve().parent.parent / "schemas"
 TS = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$")
-SMALL = {"config_version": "t-small", "mode": "train",
+SMALL = {"config_version": "t-small", "mode": "train", "clean": True,
          "size": {"ledger_rows": [200, 260], "documents": [20, 30]}}
-BIG = {"config_version": "t-big", "mode": "eval",
+BIG = {"config_version": "t-big", "mode": "eval", "clean": True,
        "size": {"ledger_rows": [1800, 2000], "documents": [180, 200]}}
-FEW_DOCS_MANY_ROWS = {"config_version": "t-skew", "mode": "train",
+FEW_DOCS_MANY_ROWS = {"config_version": "t-skew", "mode": "train", "clean": True,
                       "size": {"ledger_rows": [1900, 2000], "documents": [20, 22]}}
-SAAS_KZT_ONLY = {"config_version": "t-saas", "mode": "train",
+SAAS_KZT_ONLY = {"config_version": "t-saas", "mode": "train", "clean": True,
                  "company": {"archetype": "saas", "foreign_currencies": []}}
-CONFIGS = [{}, SMALL, BIG, FEW_DOCS_MANY_ROWS, SAAS_KZT_ONLY]
+CONFIGS = [{"clean": True}, SMALL, BIG, FEW_DOCS_MANY_ROWS, SAAS_KZT_ONLY]
 
 
 def load(ep: Path) -> dict:
@@ -192,8 +192,8 @@ def _content(d):
 
 
 def test_id_stream_changes_ids_not_content(tmp_path):
-    a = load(generate_episode(11, {}, tmp_path / "a"))
-    b = load(generate_episode(11, {}, tmp_path / "b", id_seed=999))
+    a = load(generate_episode(11, {"clean": True}, tmp_path / "a"))
+    b = load(generate_episode(11, {"clean": True}, tmp_path / "b", id_seed=999))
     assert _content(a) == _content(b)
     assert {r["row_id"] for r in a["ledger"]}.isdisjoint({r["row_id"] for r in b["ledger"]})
 

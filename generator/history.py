@@ -85,6 +85,7 @@ class History:
     payments: list
     ledger: list
     fx_rows: list
+    small_invoice_ids: list = field(default_factory=list)  # короткие счета: кандидаты в дубли
 
 
 # ---------- проводки ----------
@@ -130,21 +131,24 @@ def post_payment(pay, ctx, ids, invoices_by_id, posted_at=None, rate=None, alloc
     ent = invoices_by_id[refs[0]["invoice_id"]]["entity_id"] if refs else None
     pid = pay["payment_id"]
     rows = [_row(ids, ctx, ts, "1010", cash, 0, ent, None, pid)]
-    credited_cash = 0  # часть cash, закрытая распределёнными суммами (по курсу платежа)
+    # Формула совпадает с grader/evidence.payment_book: 2900 = остаток × курс платежа,
+    # 7900 = всё, что не сошлось (курсовая разница).
     credited_ar = 0
+    allocated_total = 0
     for ref in refs:
         amount = ref["amount_minor"] if allocations is None else allocations[ref["invoice_id"]]
+        allocated_total += amount
         if amount <= 0:
             continue
         inv = invoices_by_id[ref["invoice_id"]]
         ar = ctx.convert(amount, cur, ctx.local_date(inv["issued_at"]))
         rows.append(_row(ids, ctx, ts, "1200", 0, ar, ent, ref["invoice_id"], pid))
         credited_ar += ar
-        credited_cash += ctx.convert(amount, cur, ctx.local_date(pay["timestamp"]), rate)
-    unallocated = cash - credited_cash
+    remainder = pay["amount_minor"] - allocated_total
+    unallocated = ctx.convert(remainder, cur, ctx.local_date(pay["timestamp"]), rate) if remainder else 0
     if unallocated > 0:
         rows.append(_row(ids, ctx, ts, "2900", 0, unallocated, ent, None, pid))
-    diff = credited_cash - credited_ar  # > 0 — курсовой доход, < 0 — расход
+    diff = cash - credited_ar - unallocated  # > 0 — курсовой доход, < 0 — расход
     if diff > 0:
         rows.append(_row(ids, ctx, ts, "7900", 0, diff, ent, None, pid))
     elif diff < 0:
@@ -210,7 +214,8 @@ def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
     return n_inv, n_pay, rng.randint(lo, hi)
 
 
-def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0) -> History:
+def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0) -> History:
+    """small_count — сколько счетов оставить с 1–2 строками (дубль такого счёта не раздует книгу)."""
     company = cfg["company"]
     tz = parse_tz(company["timezone"])
     base = company["base_currency"]
@@ -241,9 +246,13 @@ def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0) -> History:
         drafts.append({"issued": _work_time(content, day, tz), "entity": content.choice(entities),
                        "paid": i < n_pay, "lines": 1})
     pay_rows = sum(2 if d["entity"]["currency"] == base else 3 for d in drafts if d["paid"])
-    extra_lines = max(0, target_rows - pay_rows - 2 * n_inv)
+    small = set(content.sample(range(n_inv), min(small_count, n_inv - 1))) if small_count else set()
+    for i in sorted(small):
+        drafts[i]["lines"] = content.randint(1, 2)
+    growable = [d for i, d in enumerate(drafts) if i not in small]
+    extra_lines = max(0, target_rows - pay_rows - 2 * n_inv - sum(d["lines"] - 1 for d in drafts))
     for _ in range(extra_lines):
-        content.choice(drafts)["lines"] += 1
+        content.choice(growable)["lines"] += 1
 
     invoices, payments = [], []
     for d in drafts:
@@ -275,10 +284,11 @@ def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0) -> History:
             "invoice_refs": [{"invoice_id": inv["invoice_id"], "amount_minor": inv["total_minor"]}]})
 
     by_id = {inv["invoice_id"]: inv for inv in invoices}
+    small_ids = [invoices[i]["invoice_id"] for i in sorted(small)]
     ledger = []
     for inv in invoices:
         ledger += post_invoice(inv, ctx, ids)
     for pay in payments:
         ledger += post_payment(pay, ctx, ids, by_id)
     return History(ctx=ctx, episode_id=episode_id, entities=entities, invoices=invoices,
-                   payments=payments, ledger=ledger, fx_rows=fx_rows)
+                   payments=payments, ledger=ledger, fx_rows=fx_rows, small_invoice_ids=small_ids)
