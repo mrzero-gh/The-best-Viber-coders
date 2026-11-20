@@ -126,37 +126,30 @@ def post_payment(pay, ctx, ids, invoices_by_id, posted_at=None, rate=None, alloc
     разница — 7900; нераспределённый остаток — Кт 2900.
 
     allocations — сколько из каждого ref реально разнесено в книге (по умолчанию всё).
+    Возврат (amount_minor < 0) — обратные проводки: Кт 1010, Дт 1200.
+    Формула совпадает с grader/evidence.payment_book: значения со знаком (дебет − кредит),
+    2900 = остаток × курс платежа, 7900 = всё, что не сошлось (курсовая разница).
     """
     ts = posted_at or pay["timestamp"]
     cur = pay["currency"]
-    cash = ctx.convert(pay["amount_minor"], cur, ctx.local_date(pay["timestamp"]), rate)
+    pay_day = ctx.local_date(pay["timestamp"])
+    sign = 1 if pay["amount_minor"] >= 0 else -1
     refs = pay["invoice_refs"]
     ent = invoices_by_id[refs[0]["invoice_id"]]["entity_id"] if refs else None
-    pid = pay["payment_id"]
-    rows = [_row(ids, ctx, ts, "1010", cash, 0, ent, None, pid)]
-    # Формула совпадает с grader/evidence.payment_book: 2900 = остаток × курс платежа,
-    # 7900 = всё, что не сошлось (курсовая разница).
-    credited_ar = 0
+    book = [("1010", None, ctx.convert(pay["amount_minor"], cur, pay_day, rate))]
     allocated_total = 0
     for ref in refs:
         amount = ref["amount_minor"] if allocations is None else allocations[ref["invoice_id"]]
         allocated_total += amount
-        if amount <= 0:
-            continue
-        inv = invoices_by_id[ref["invoice_id"]]
-        ar = ctx.convert(amount, cur, ctx.local_date(inv["issued_at"]))
-        rows.append(_row(ids, ctx, ts, "1200", 0, ar, ent, ref["invoice_id"], pid))
-        credited_ar += ar
-    remainder = pay["amount_minor"] - allocated_total
-    unallocated = ctx.convert(remainder, cur, ctx.local_date(pay["timestamp"]), rate) if remainder else 0
-    if unallocated > 0:
-        rows.append(_row(ids, ctx, ts, "2900", 0, unallocated, ent, None, pid))
-    diff = cash - credited_ar - unallocated  # > 0 — курсовой доход, < 0 — расход
-    if diff > 0:
-        rows.append(_row(ids, ctx, ts, "7900", 0, diff, ent, None, pid))
-    elif diff < 0:
-        rows.append(_row(ids, ctx, ts, "7900", -diff, 0, ent, None, pid))
-    return rows
+        if amount > 0:
+            inv = invoices_by_id[ref["invoice_id"]]
+            ar = ctx.convert(amount, cur, ctx.local_date(inv["issued_at"]))
+            book.append(("1200", ref["invoice_id"], -sign * ar))
+    remainder = abs(pay["amount_minor"]) - allocated_total
+    book.append(("2900", None, -sign * ctx.convert(remainder, cur, pay_day, rate)))
+    book.append(("7900", None, -sum(v for _, _, v in book)))
+    return [_row(ids, ctx, ts, account, max(v, 0), max(-v, 0), ent, iid, pay["payment_id"])
+            for account, iid, v in book if v != 0]
 
 
 # ---------- построение ----------
@@ -223,10 +216,12 @@ def _make_entities(content, ids, archetype, base, foreign):
     for _ in range(content.randint(6, 14)):
         cur = content.choice(foreign) if content.randint(1, 100) <= share else base
         entities.append({"entity_id": ids.new("E"), "currency": cur})
+    if all(e["currency"] != base for e in entities):
+        entities[0]["currency"] = base  # хотя бы один контрагент в базовой валюте
     return entities
 
 
-def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count):
+def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count, base_small=0):
     """Даты, контрагенты и число строк счетов. Первые n_pay будут оплачены — их даты
     не у самого конца периода. Короткие счета (1–2 строки) есть всегда, не только у дублей,
     чтобы краткость счёта не выдавала ошибку."""
@@ -236,11 +231,14 @@ def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count)
         day = ctx.period_start.date() + timedelta(days=content.randint(0, days - 3 if i < n_pay else days - 1))
         drafts.append({"issued": _work_time(content, day, ctx.tz), "entity": content.choice(entities),
                        "paid": i < n_pay, "lines": 1})
-    pay_rows = sum(2 if d["entity"]["currency"] == ctx.base else 3 for d in drafts if d["paid"])
     n_small = min(max(small_count, n_inv // 6), n_inv - 1)
     small = set(content.sample(range(n_inv), n_small))
-    for i in sorted(small):
+    base_entities = [e for e in entities if e["currency"] == ctx.base]
+    for k, i in enumerate(sorted(small)):
         drafts[i]["lines"] = content.randint(1, 2)
+        if k < base_small:  # под повторяющуюся услугу: прошлый месяц без курса валюты
+            drafts[i]["entity"] = content.choice(base_entities)
+    pay_rows = sum(2 if d["entity"]["currency"] == ctx.base else 3 for d in drafts if d["paid"])
     growable = [d for i, d in enumerate(drafts) if i not in small]
     extra_lines = max(0, target_rows - pay_rows - 2 * n_inv - sum(d["lines"] - 1 for d in drafts))
     for _ in range(extra_lines):
@@ -275,8 +273,9 @@ def _make_payment(content, ids, ctx, draft, inv):
             "invoice_refs": [{"invoice_id": inv["invoice_id"], "amount_minor": inv["total_minor"]}]}
 
 
-def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0) -> History:
-    """small_count — сколько счетов минимум оставить с 1–2 строками (кандидаты в дубли)."""
+def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0, base_small=0) -> History:
+    """small_count — сколько счетов минимум оставить с 1–2 строками (кандидаты в дубли);
+    base_small — сколько из них сделать в базовой валюте (под legit_recurring)."""
     company = cfg["company"]
     tz = parse_tz(company["timezone"])
     base = company["base_currency"]
@@ -288,7 +287,7 @@ def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0
     fx_rows = _build_fx(content, ctx, foreign)
     entities = _make_entities(content, ids, company["archetype"], base, foreign)
     n_inv, n_pay, target_rows = plan_sizes(content, cfg, reserve_rows, reserve_docs)
-    drafts, small = _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count)
+    drafts, small = _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count, base_small)
 
     goods = GOODS[company["archetype"]]
     period_label = f"{MONTHS_RU[start.month - 1]} {start.year}"

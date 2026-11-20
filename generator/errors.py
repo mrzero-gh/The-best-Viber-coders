@@ -262,9 +262,13 @@ class Injector:
         return self._add("period_cutoff", [key], abs(amount), doc["currency"], evidence, changes, scenario)
 
 
-def inject(history, cfg, rng, ids, counts) -> Injector:
-    """Вносит запланированные ошибки. Если кандидатов не хватило — вносит, сколько получилось."""
+def inject(history, cfg, rng, ids, counts, used=()) -> Injector:
+    """Вносит запланированные ошибки. Если кандидатов не хватило — вносит, сколько получилось.
+
+    used — ID документов отвлекающих случаев: ошибки их не трогают.
+    """
     inj = Injector(history, rng, ids)
+    inj.used = set(used)
     for _ in range(counts["duplicate_invoice"]):
         inj.duplicate_invoice()
     for _ in range(counts["payment_allocation"]):

@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 
 from generator.build import generate_episode
-from tests.test_generator_clean import _convert, _validator, load
+from tests.test_generator_clean import _convert, _validator, load, previous_month_ids
 
 OFF = {"enabled": False}
 DUP_ALLOC = {"config_version": "t-err", "mode": "train",
@@ -190,12 +190,14 @@ def test_cutoff_is_provable_from_public(ep4):
 
 def test_only_cutoff_documents_outside_period(ep4):
     bad = {x for i in _by_type(ep4, "period_cutoff") for x in i["affected_ids"]}
+    prev = previous_month_ids(ep4)
+    bad |= prev
     for doc in ep4["invoices"]:
         assert _in_period(ep4, doc["issued_at"]) or doc["invoice_id"] in bad
     for doc in ep4["payments"]:
         assert _in_period(ep4, doc["timestamp"]) or doc["payment_id"] in bad
     for r in ep4["ledger"]:
-        assert _in_period(ep4, r["timestamp"])
+        assert _in_period(ep4, r["timestamp"]) or r["invoice_id"] in prev
 
 
 def test_kzt_only_company_skips_fx(tmp_path):

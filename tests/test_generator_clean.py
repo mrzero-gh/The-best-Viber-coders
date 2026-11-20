@@ -41,6 +41,14 @@ def load(ep: Path) -> dict:
             "truth": rd("private/truth.json"), "generation": rd("private/generation.json")}
 
 
+def previous_month_ids(d) -> set:
+    """Счета прошлого месяца из отвлекающих случаев legit_recurring (законно вне периода)."""
+    start = datetime.fromisoformat(d["manifest"]["period_start"])
+    ids = {x for item in d["truth"]["distractors"] if item["kind"] == "legit_recurring" for x in item["record_ids"]}
+    return {i["invoice_id"] for i in d["invoices"]
+            if i["invoice_id"] in ids and datetime.fromisoformat(i["issued_at"]) < start}
+
+
 @pytest.fixture(scope="module", params=list(enumerate(CONFIGS)), ids=lambda p: f"cfg{p[0]}")
 def episode(request, tmp_path_factory):
     i, cfg = request.param
@@ -108,7 +116,7 @@ def test_invoice_postings_match_published_fx(episode):
     """Независимый пересчёт по открытым fx.csv и policy: Дт 1200 = total × курс даты счёта."""
     d, _ = episode
     ar = {r["invoice_id"]: r["debit_minor"] for r in d["ledger"]
-          if r["account"] == "1200" and r["debit_minor"] > 0}
+          if r["account"] == "1200" and r["debit_minor"] > 0 and r["payment_id"] is None}
     for inv in d["invoices"]:
         assert sum(x["amount_minor"] for x in inv["line_items"]) == inv["total_minor"]
         day = inv["issued_at"][:10]  # время уже в часовом поясе манифеста
@@ -122,8 +130,14 @@ def test_paid_invoices_close_receivable(episode):
         if r["account"] == "1200":
             bal[r["invoice_id"]] += r["debit_minor"] - r["credit_minor"]
     paid = {ref["invoice_id"] for p in d["payments"] for ref in p["invoice_refs"]}
-    for iid in paid:
+    refunded = {ref["invoice_id"] for p in d["payments"] if p["amount_minor"] < 0 for ref in p["invoice_refs"]}
+    for iid in paid - refunded:
         assert bal[iid] == 0
+    for iid in refunded:  # после возврата открыт ровно возвращённый остаток
+        inv = next(i for i in d["invoices"] if i["invoice_id"] == iid)
+        back = sum(r["amount_minor"] for p in d["payments"] if p["amount_minor"] < 0
+                   for r in p["invoice_refs"] if r["invoice_id"] == iid)
+        assert bal[iid] == _convert(back, inv["currency"], inv["issued_at"][:10], d)
     assert not any(r["account"] == "2900" for r in d["ledger"]), "в чистой истории нет невыясненных"
 
 
@@ -137,9 +151,14 @@ def test_sizes_period_and_formats(episode):
     assert 20 <= docs <= 200
     assert m["counts"]["ledger_rows"] == len(d["ledger"]) and m["counts"]["documents"] == docs
     start, end = datetime.fromisoformat(m["period_start"]), datetime.fromisoformat(m["period_end"])
-    for ts in ([r["timestamp"] for r in d["ledger"]] + [i["issued_at"] for i in d["invoices"]]
+    prev = previous_month_ids(d)
+    for ts in ([r["timestamp"] for r in d["ledger"] if r["invoice_id"] not in prev]
+               + [i["issued_at"] for i in d["invoices"] if i["invoice_id"] not in prev]
                + [p["timestamp"] for p in d["payments"]]):
         assert TS.match(ts) and start <= datetime.fromisoformat(ts) < end
+    for i in d["invoices"]:
+        if i["invoice_id"] in prev:  # прошлый счёт повторяющейся услуги: и он, и проводки до периода
+            assert datetime.fromisoformat(i["issued_at"]) < start
     assert TS.match(m["period_start"]) and m["timezone"] == "+05:00"
 
 
