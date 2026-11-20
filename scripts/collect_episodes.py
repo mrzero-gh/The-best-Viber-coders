@@ -117,13 +117,11 @@ def generate_and_collect(train_count: int = 10, dev_count: int = 10, base_seed: 
                 f.write(canonical_dumps(item) + "\n")
         print(f"  [dev] seed={seed} -> {ep.name} (шагов: {len(traj)-1}, eval-награда: {traj[-1]['reward']})")
 
-    # Сводный файл траекторий (сохраняем и в episodes/trajectories.jsonl, и в корень для совместимости)
-    master_traj = ROOT / "episodes" / "trajectories.jsonl"
+    # Сводный файл траекторий — один, в корне (сдаваемый trajectories.jsonl)
     root_traj = ROOT / "trajectories.jsonl"
     content = "".join(canonical_dumps(item) + "\n" for item in all_trajectories)
-    master_traj.write_text(content, encoding="utf-8")
     root_traj.write_text(content, encoding="utf-8")
-    print(f"Всего шагов траекторий сохранено в {master_traj} и {root_traj}: {len(all_trajectories)}")
+    print(f"Всего шагов траекторий сохранено в {root_traj}: {len(all_trajectories)}")
 
 
 def main():
