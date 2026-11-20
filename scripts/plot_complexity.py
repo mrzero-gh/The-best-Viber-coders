@@ -1,4 +1,7 @@
-"""Построение графика сложности: python -m scripts.plot_complexity."""
+"""Построение графика сложности: python -m scripts.plot_complexity [--seeds N] [--out путь.png].
+
+Нужен matplotlib: pip install -r requirements-plot.txt. Без него скрипт печатает таблицу
+и завершается с кодом 1 (график не обновлён)."""
 import argparse
 import json
 import os
@@ -89,7 +92,12 @@ def eval_policy(policy, ep_path: Path, grader_str: str) -> dict:
     return {"f1": 0.0, "reward": -1.0, "p": 0.0, "r": 0.0}
 
 
-def build_complexity_curve(grader_str: str = "grader.evaluate:evaluate", seeds_per_level: int = 2):
+DEFAULT_OUT = ROOT / "docs" / "complexity_curve.png"
+
+
+def build_complexity_curve(grader_str: str = "grader.evaluate:evaluate", seeds_per_level: int = 2,
+                           out_img: Path = DEFAULT_OUT) -> int:
+    """Таблица F1 по уровням и график в out_img. 0 - график сохранён, 1 - нет."""
     print(f"Построение кривой сложности с оценщиком: {grader_str}")
     policies = {
         "Oracle": OraclePolicy(),
@@ -147,12 +155,14 @@ def build_complexity_curve(grader_str: str = "grader.evaluate:evaluate", seeds_p
     print("-" * len(header))
 
     # Рисуем график
-    docs_dir = ROOT / "docs"
-    docs_dir.mkdir(parents=True, exist_ok=True)
-    out_img = docs_dir / "complexity_curve.png"
-
+    out_img = Path(out_img)
     try:
         import matplotlib
+    except ImportError:
+        print("\nОшибка: нет matplotlib, график не обновлён. Установите: pip install -r requirements-plot.txt")
+        return 1
+    out_img.parent.mkdir(parents=True, exist_ok=True)
+    try:
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
@@ -187,22 +197,23 @@ def build_complexity_curve(grader_str: str = "grader.evaluate:evaluate", seeds_p
         plt.close()
         print(f"\nГрафик успешно сохранён в: {out_img}")
     except Exception as e:
-        print(f"Предупреждение: не удалось сохранить изображение графика: {e}")
+        print(f"Ошибка: не удалось сохранить изображение графика: {e}")
+        return 1
 
     return 0
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Построение графика сложности")
     parser.add_argument("--grader", default="grader.evaluate:evaluate",
                         help="Функция оценщика (по умолчанию боевой оценщик grader.evaluate:evaluate)")
-    parser.add_argument("--real-grader", action="store_true",
-                        help="Использовать боевой оценщик (включено по умолчанию)")
-    parser.add_argument("--seeds", type=int, default=1, help="Число seed на уровень")
-    args = parser.parse_args()
-
-    grader = args.grader
-    return build_complexity_curve(grader, args.seeds)
+    parser.add_argument("--seeds", type=int, default=1, help="Число seed на уровень (не меньше 1)")
+    parser.add_argument("--out", default=str(DEFAULT_OUT),
+                        help="Куда сохранить PNG (по умолчанию docs/complexity_curve.png)")
+    args = parser.parse_args(argv)
+    if args.seeds < 1:
+        parser.error("--seeds: нужно целое число не меньше 1")
+    return build_complexity_curve(args.grader, args.seeds, Path(args.out))
 
 
 if __name__ == "__main__":

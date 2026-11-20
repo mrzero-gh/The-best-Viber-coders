@@ -281,7 +281,8 @@ python -m scripts.check --docker
 # 2. Экзаменационный прогон методикой жюри с боевым оценщиком
 python -m scripts.jury
 
-# 3. Построение графика сложности и обновление docs/complexity_curve.png
+# 3. Построение графика сложности и обновление docs/complexity_curve.png (нужен matplotlib)
+pip install -r requirements-plot.txt
 python -m scripts.plot_complexity
 
 # 4. Метаморфные тесты и парные проверки как у жюри (P01–P20)

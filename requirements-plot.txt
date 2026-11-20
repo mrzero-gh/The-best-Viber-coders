@@ -1,0 +1,14 @@
+# Только для графика сложности (python -m scripts.plot_complexity) и акта 4 в scripts.demo.
+# Среде, оценщику и тестам не нужен: в Docker-образ и CI не ставится.
+#   pip install -r requirements-plot.txt
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.68.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+numpy==2.5.5
+packaging==26.3
+pillow==13.0.0
+pyparsing==3.3.3
+python-dateutil==4.0.0
+tzdata==2026.6

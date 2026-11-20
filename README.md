@@ -118,7 +118,7 @@ python -m scripts.pair_check       # перестановка строк и см
 | `python -m scripts.jury` | Прогон 5 политик с боевым оценщиком, таблица P/R/F1/награда/шаги |
 | `python -m scripts.pair_check` | 20 парных проверок как у жюри |
 | `python judge_adapter.py` | Самопроверка адаптера жюри |
-| `python -m scripts.plot_complexity` | Кривая сложности → `docs/complexity_curve.png` |
+| `python -m scripts.plot_complexity` | Кривая сложности → `docs/complexity_curve.png` (нужен `pip install -r requirements-plot.txt`) |
 | `python -m scripts.test_metamorphic` | Метаморфные проверки инвариантов |
 | `python -m scripts.collect_episodes` | Пересборка 10 train + 10 dev эпизодов и траекторий |
 | `python -m generator.explain <эпизод>` | История каждой ошибки эпизода |

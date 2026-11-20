@@ -6,6 +6,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -31,7 +32,7 @@ def main():
     os.chdir(ROOT)
     banner("Audit Gym — Демонстрация решения (Команда The Best Viber Coders)")
     slow_print("Кейс: Genesis FinTech — RL-среда для финансового аудитора")
-    slow_print("Роль D: Автономные политики, траектории, тесты воспроизводимости, демо\n")
+    slow_print("Среда, генератор с эталоном, оценщик и базовые политики\n")
     time.sleep(1.5)
 
     # -------------------------------------------------------------
@@ -61,7 +62,7 @@ def main():
     # АКТ 2: Экзамен жюри на боевом оценщике
     # -------------------------------------------------------------
     banner("Акт 2: Экзаменационный прогон методикой жюри (scripts.jury)")
-    slow_print("Подключение 4 базовых политик к реальному генератору и боевому оценщику grader.evaluate...")
+    slow_print("Подключение 5 базовых политик к реальному генератору и боевому оценщику grader.evaluate...")
     time.sleep(1)
 
     code = subprocess.call([sys.executable, "-m", "scripts.jury", "--seeds", "2"])
@@ -82,14 +83,18 @@ def main():
     # -------------------------------------------------------------
     # АКТ 4: Анализ кривой сложности
     # -------------------------------------------------------------
-    banner("Акт 4: Анализ кривой сложности (docs/complexity_curve.png)")
+    banner("Акт 4: Анализ кривой сложности")
     slow_print("Генерация кривой сложности на боевом модуле grader.evaluate:evaluate...")
-    code = subprocess.call([sys.executable, "-m", "scripts.plot_complexity", "--seeds", "2"])
+    # график демо - во временную папку: закоммиченный docs/complexity_curve.png не трогаем
+    img_path = Path(tempfile.gettempdir()) / "audit-gym-demo" / "complexity_curve.png"
+    code = subprocess.call([sys.executable, "-m", "scripts.plot_complexity", "--seeds", "2",
+                            "--out", str(img_path)])
     if code != 0:
-        return code
+        slow_print("График не построен (нужен matplotlib: pip install -r requirements-plot.txt). "
+                   "Готовый график из репозитория: docs/complexity_curve.png")
+        img_path = None
 
-    img_path = ROOT / "docs" / "complexity_curve.png"
-    if img_path.exists():
+    if img_path is not None and img_path.exists():
         slow_print(f"\nГрафик успешно сформирован: {img_path}")
         slow_print("Открытие графика в системном просмотрщике...")
         try:
