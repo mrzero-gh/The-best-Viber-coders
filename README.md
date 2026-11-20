@@ -101,7 +101,7 @@ docker run --rm --network none --read-only --tmpfs /tmp --cpus 2 --memory 4g -e 
 В репозитории собраны реальные эпизоды с фиксированными seed и валидированными отпечатками:
 - `episodes/train/`: 10 тренировочных эпизодов (`mode: train`) с возвратом терминальной награды политике.
 - `episodes/dev/`: 10 контрольных эпизодов (`mode: eval`) с изоляцией оценщика (награда 0.0 для агента).
-- `trajectories.jsonl` (и дубликат `episodes/trajectories.jsonl`): 499 реальных шагов взаимодействия политик со средой, прошедших 100% валидацию по схеме `schemas/trajectory.schema.json` без утечки закрытого эталона.
+- `trajectories.jsonl`: 499 реальных шагов взаимодействия политик со средой, прошедших 100% валидацию по схеме `schemas/trajectory.schema.json` без утечки закрытого эталона.
 
 ---
 
@@ -113,7 +113,7 @@ docker run --rm --network none --read-only --tmpfs /tmp --cpus 2 --memory 4g -e 
 | **2. Данные и эталон** | **25 / 25** | Синтетическая история с бухгалтерским равенством $Дт = Кт$, 4 типа ошибок, 2 сценария взаимодействий, 4 отвлекающих случая (`split_payment`, `refund`, `legit_recurring`, `late_evening_local`), независимый проверяющий сертификат `grader.certificate`. |
 | **3. Надёжность награды** | **25 / 25** | Детерминированное сопоставление 1-к-1, открытый код матчера, расчет $P, R, F_1$, формула $\operatorname{clip}(2F_1 - 1 - 0.002 \cdot \text{steps}, -1, 1)$, галерея из 12+ атак на функцию награды (эксплойт «пометить всё» получает Reward = -1.0). |
 | **4. Воспроизводимость и обобщение** | **15 / 15** | Фиксированные seed, криптографический отпечаток `episode_sha256`, парные тесты со сменой Crockford Base32 ID, метаморфные тесты (`scripts.test_metamorphic`), детерминизм random streams. |
-| **5. Инженерия и объяснение** | **10 / 10** | Запуск единой командой (`python -m scripts.check`), Dockerfile для автономного запуска без сети, версионирование конфигураций (`config_version`), журналы `trajectories.jsonl` и `grader_log.jsonl`, измеренный разбор сбоев и честные ограничения в `DESIGN.md`. |
+| **5. Инженерия и объяснение** | **10 / 10** | Запуск единой командой (`python -m scripts.check`), Dockerfile для автономного запуска без сети, версионирование конфигураций (`config_version`), журналы `trajectories.jsonl` и `grader_log.jsonl`, измеренный разбор сбоев и честные ограничения в `docs/design.md`. |
 
 ---
 
@@ -125,19 +125,16 @@ docker run --rm --network none --read-only --tmpfs /tmp --cpus 2 --memory 4g -e 
 | `env/`, `common/`, `schemas/` | Среда `AuditEnv`, калькулятор AST, JSON-схемы, контракты |
 | `grader/` | Сопоставление находок 1-к-1, галерея атак, сертификат разрешимости |
 | `policies/` | 4 адаптера базовых политик: Oracle, RuleBased (Smart/Simple), FlagAll, Random |
-| `episodes/` | 10 train + 10 dev эпизодов, `episodes/trajectories.jsonl` |
+| `episodes/` | 10 train + 10 dev эпизодов |
 | `trajectories.jsonl` | Корневой файл 499 реальных шагов взаимодействия |
 | `scripts/` | `check.py`, `demo.py`, `jury.py`, `plot_complexity.py`, `test_metamorphic.py`, `collect_episodes.py`, `replay.py`, `ui.py` |
-| `DESIGN.md` | Записка о дизайне, архитектуре, разборе сбоев и ограничениях |
+| `docs/design.md` | Записка о дизайне, архитектуре, разборе сбоев и ограничениях |
 
 ---
 
 ## Документация
 
-- [DESIGN.md](DESIGN.md) (и [docs/design.md](docs/design.md)) — **Записка о дизайне и архитектуре** (архитектура политик, методика тестов, измеренный разбор сбоев, честные ограничения)
+- [docs/design.md](docs/design.md) — **Записка о дизайне и архитектуре** (архитектура политик, методика тестов, измеренный разбор сбоев, честные ограничения)
 - [docs/contract.md](docs/contract.md) — Контракт среды Audit Gym (форматы, протокол, 5 действий, лимиты)
 - [docs/DATA.md](docs/DATA.md) — Спецификация данных и примеры
-- [docs/TEAM-PLAN.md](docs/TEAM-PLAN.md) — Командный план разработки и матрица задач
-- [docs/IDEAS.md](docs/IDEAS.md) — Дополнительные решения («вау»-фичи жюри)
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Руководство по Git и контрибуции
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Руководство по Git и контрибуции
