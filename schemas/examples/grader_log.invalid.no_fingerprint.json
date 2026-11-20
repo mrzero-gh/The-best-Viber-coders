@@ -1,0 +1,14 @@
+{
+  "config_version": "default-v1",
+  "episode_id": "EP-11N2H5M6",
+  "error": null,
+  "inspection_steps": 4,
+  "metrics": {"f1": 1.0, "fn": 0, "fp": 0, "precision": 1.0, "recall": 1.0, "tp": 4},
+  "mode": "eval",
+  "reward": 0.992,
+  "run_id": "demo",
+  "seed": 42,
+  "status": "submitted",
+  "steps_used": 5,
+  "valid": true
+}

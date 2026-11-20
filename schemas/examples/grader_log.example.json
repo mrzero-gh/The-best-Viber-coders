@@ -1,0 +1,15 @@
+{
+  "config_version": "default-v1",
+  "episode_id": "EP-11N2H5M6",
+  "episode_sha256": "7a893d5219e27b1151c5b3d733ac15908ad51996b7c6180c42e8be32138e8613",
+  "error": null,
+  "inspection_steps": 4,
+  "metrics": {"f1": 1.0, "fn": 0, "fp": 0, "precision": 1.0, "recall": 1.0, "tp": 4},
+  "mode": "eval",
+  "reward": 0.992,
+  "run_id": "demo",
+  "seed": 42,
+  "status": "submitted",
+  "steps_used": 5,
+  "valid": true
+}
