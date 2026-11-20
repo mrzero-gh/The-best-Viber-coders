@@ -111,13 +111,13 @@ def test_replay_episode_nonexistent():
 
 
 def test_cli_help():
-    res = subprocess.run([sys.executable, "-m", "scripts.replay", "--help"], capture_output=True, text=True)
+    res = subprocess.run([sys.executable, "-m", "scripts.replay", "--help"], capture_output=True, text=True, encoding="utf-8")
     assert res.returncode == 0
     assert "Audit Gym Replay" in res.stdout
 
 
 def test_cli_list():
-    res = subprocess.run([sys.executable, "-m", "scripts.replay", "--list"], capture_output=True, text=True)
+    res = subprocess.run([sys.executable, "-m", "scripts.replay", "--list"], capture_output=True, text=True, encoding="utf-8")
     assert res.returncode == 0
     assert "EP-0HJPAE81" in res.stdout
     assert "Доступные эпизоды" in res.stdout
@@ -128,6 +128,7 @@ def test_cli_summary_no_color():
         [sys.executable, "-m", "scripts.replay", "trajectories.jsonl", "--episode", "EP-0HJPAE81", "--summary", "--no-color"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert res.returncode == 0
     assert "АКТ I: ВХОД В КОНТЕКСТ АУДИТА" in res.stdout
@@ -142,6 +143,7 @@ def test_cli_dir_argument():
         [sys.executable, "-m", "scripts.replay", str(ep_dir), "--summary", "--no-color"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     assert res.returncode == 0
     assert "EP-0HJPAE81" in res.stdout

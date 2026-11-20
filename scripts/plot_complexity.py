@@ -89,7 +89,7 @@ def eval_policy(policy, ep_path: Path, grader_str: str) -> dict:
     return {"f1": 0.0, "reward": -1.0, "p": 0.0, "r": 0.0}
 
 
-def build_complexity_curve(grader_str: str = "scripts.stub_grader:evaluate", seeds_per_level: int = 2):
+def build_complexity_curve(grader_str: str = "grader.evaluate:evaluate", seeds_per_level: int = 2):
     print(f"Построение кривой сложности с оценщиком: {grader_str}")
     policies = {
         "Oracle": OraclePolicy(),
@@ -194,14 +194,14 @@ def build_complexity_curve(grader_str: str = "scripts.stub_grader:evaluate", see
 
 def main():
     parser = argparse.ArgumentParser(description="Построение графика сложности")
-    parser.add_argument("--grader", default="scripts.stub_grader:evaluate",
-                        help="Функция оценщика (по умолчанию stub-заглушка)")
+    parser.add_argument("--grader", default="grader.evaluate:evaluate",
+                        help="Функция оценщика (по умолчанию боевой оценщик grader.evaluate:evaluate)")
     parser.add_argument("--real-grader", action="store_true",
-                        help="Использовать реальный grader/evaluate.py")
+                        help="Использовать боевой оценщик (включено по умолчанию)")
     parser.add_argument("--seeds", type=int, default=1, help="Число seed на уровень")
     args = parser.parse_args()
 
-    grader = "grader.evaluate:evaluate" if args.real_grader else args.grader
+    grader = args.grader
     return build_complexity_curve(grader, args.seeds)
 
 

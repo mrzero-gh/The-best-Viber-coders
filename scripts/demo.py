@@ -59,11 +59,11 @@ def main():
     # -------------------------------------------------------------
     # АКТ 2: Экзамен жюри на боевом оценщике
     # -------------------------------------------------------------
-    banner("Акт 2: Экзаменационный прогон методикой жюри (scripts.jury --real-grader)")
+    banner("Акт 2: Экзаменационный прогон методикой жюри (scripts.jury)")
     slow_print("Подключение 4 базовых политик к реальному генератору и боевому оценщику grader.evaluate...")
     time.sleep(1)
 
-    code = subprocess.call([sys.executable, "-m", "scripts.jury", "--real-grader", "--seeds", "2"])
+    code = subprocess.call([sys.executable, "-m", "scripts.jury", "--seeds", "2"])
     if code != 0:
         return code
     time.sleep(2)
@@ -73,7 +73,7 @@ def main():
     # -------------------------------------------------------------
     banner("Акт 3: Анализ кривой сложности (docs/complexity_curve.png)")
     slow_print("Генерация кривой сложности на боевом модуле grader.evaluate:evaluate...")
-    code = subprocess.call([sys.executable, "-m", "scripts.plot_complexity", "--real-grader", "--seeds", "2"])
+    code = subprocess.call([sys.executable, "-m", "scripts.plot_complexity", "--seeds", "2"])
     if code != 0:
         return code
 

@@ -79,7 +79,7 @@ def test_ui_cli_export():
         tmp_path = Path(tmp.name)
     try:
         cmd = [sys.executable, "-m", "scripts.ui", "--export", str(tmp_path), "--episode", "EP-0HJPAE81"]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
         assert res.returncode == 0
         assert tmp_path.exists()
         assert "Автономный отчёт успешно экспортирован" in res.stdout

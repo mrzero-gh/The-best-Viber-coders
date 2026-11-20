@@ -98,7 +98,7 @@ class RuleBasedPolicy(Policy):
 
                     # Все 4 таблицы загружены
                     candidates = self._find_duplicate_doc_ids()
-                    if candidates and remaining > len(candidates) + 5:
+                    if not self.naive and candidates and remaining > len(candidates) + 5:
                         self.pending_docs_to_fetch = list(candidates)
                         next_doc = self.pending_docs_to_fetch.pop(0)
                         return {"tool": "get_document", "args": {"doc_id": next_doc}}
@@ -299,7 +299,8 @@ class RuleBasedPolicy(Policy):
                 allocated_in_pay_curr = source_amount(posted_1200_credit, pay["currency"], inv["issued_at"])
                 unallocated = declared - allocated_in_pay_curr
 
-                if unallocated > 0 and has_2900:
+                should_flag = (unallocated > 0) if self.naive else (unallocated > 0 and has_2900)
+                if should_flag:
                     evidence = [pay["doc_id"]] + [r["row_id"] for r in rows]
                     findings.append({
                         "type": "payment_allocation",
@@ -365,5 +366,14 @@ class RuleBasedPolicy(Policy):
 
 
 class SimpleRulePolicy(RuleBasedPolicy):
-    """Псевдоним / реализация простой сверки."""
-    pass
+    """Простая сверка (Naive Auditor).
+
+    Поверхностный алгоритм бухгалтерской сверки:
+    - Не производит углублённого запроса первичных документов (get_document);
+    - Использует время UTC вместо местного пояса (+05:00), попадая в ловушку late_evening_local;
+    - Не анализирует позиции товаров и интервал дат, путая legit_recurring с дублями;
+    - Игнорирует транзитный счёт 2900, ошибочно маркируя законный split_payment как ошибку.
+    """
+
+    def __init__(self):
+        super().__init__(naive=True)
