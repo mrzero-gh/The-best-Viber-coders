@@ -12,6 +12,26 @@ def _parse_tz(offset_str: str) -> timezone:
     return timezone(sign * timedelta(minutes=hours * 60 + minutes))
 
 
+MAX_FINDINGS = 30  # docs/contract.md, таблица констант
+
+
+def _limit_findings(findings: list, limit: int = MAX_FINDINGS) -> list:
+    """Не больше limit выводов. Если их больше, берём по очереди из каждого типа, чтобы
+    срез [:limit] не отбрасывал целиком тип, проверяемый последним (fx_conversion)."""
+    if len(findings) <= limit:
+        return findings
+    by_type = {}
+    for f in findings:
+        by_type.setdefault(f["type"], []).append(f)
+    queues = list(by_type.values())
+    out = []
+    while len(out) < limit:
+        for q in queues:
+            if q and len(out) < limit:
+                out.append(q.pop(0))
+    return out
+
+
 class RuleBasedPolicy(Policy):
     """Политика аудита на основе правил.
 
@@ -156,14 +176,15 @@ class RuleBasedPolicy(Policy):
             dt = datetime.fromisoformat(ts_str).astimezone(tz)
             return period_start <= dt < period_end
 
-        def fx_factor(cur: str, ts_str: str) -> Decimal:
+        def fx_factor(cur: str, ts_str: str) -> Decimal | None:
+            """Множитель source -> base; None, если курса на эту дату нет в загруженных fx."""
             if cur == base:
                 return Decimal(1)
             dt = datetime.fromisoformat(ts_str).astimezone(tz)
             date_str = dt.date().isoformat()
             fx_id = f"FX:{date_str}:{cur}:{base}"
             if fx_id not in self.fx:
-                return Decimal(1)
+                return None
             rate = Decimal(self.fx[fx_id]["rate"])
             diff = exponents[base] - exponents[cur]
             return rate.scaleb(diff)
@@ -295,6 +316,8 @@ class RuleBasedPolicy(Policy):
                 if not inv:
                     continue
 
+                if fx_factor(pay["currency"], inv["issued_at"]) is None:
+                    continue  # без курса сумму в валюте платежа не восстановить: не гадаем
                 posted_1200_credit = sum(r["credit_minor"] for r in rows if r["account"] == "1200" and r["invoice_id"] == inv_id)
                 has_2900 = any(r["account"] == "2900" and r["credit_minor"] > 0 for r in rows)
                 allocated_in_pay_curr = source_amount(posted_1200_credit, pay["currency"], inv["issued_at"])
@@ -363,7 +386,7 @@ class RuleBasedPolicy(Policy):
                         "explanation": f"Платёж {pay['payment_id']} конвертирован с ошибкой курса (разница {diff} {base})",
                     })
 
-        return findings[:30]
+        return _limit_findings(findings)
 
 
 class SimpleRulePolicy(RuleBasedPolicy):
