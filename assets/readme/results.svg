@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Средняя награда пяти политик</title>
+  <desc id="desc">Результат python -m scripts.jury, средняя награда по четырём сценариям: Oracle 1.000, Smart Auditor 0.963, Naive Auditor 0.386, Random −0.501, «Пометить всё» −1.000.</desc>
+
+  <rect width="1200" height="420" rx="22" fill="#F6F3EA"/>
+
+  <!-- шкала: ноль на x=790, 330 единиц = 1.0 -->
+  <g id="axis" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#6B6F73" text-anchor="middle">
+    <line x1="460" y1="36" x2="460" y2="360" stroke="#E4DFD2" stroke-width="1.5"/>
+    <line x1="1120" y1="36" x2="1120" y2="360" stroke="#E4DFD2" stroke-width="1.5"/>
+    <line x1="790" y1="36" x2="790" y2="360" stroke="#14171A" stroke-width="2"/>
+    <text x="460" y="392">−1</text>
+    <text x="790" y="392">0</text>
+    <text x="1120" y="392">+1 награда</text>
+  </g>
+
+  <g id="labels" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fill="#14171A">
+    <text x="56" y="62" font-size="22" font-weight="700">Oracle</text>
+    <text x="56" y="86" font-size="18" fill="#6B6F73">знает эталон: верхняя граница</text>
+    <text x="56" y="126" font-size="22" font-weight="700">Smart Auditor</text>
+    <text x="56" y="150" font-size="18" fill="#6B6F73">правила + чтение документов</text>
+    <text x="56" y="190" font-size="22" font-weight="700">Naive Auditor</text>
+    <text x="56" y="214" font-size="18" fill="#6B6F73">без документов, время в UTC</text>
+    <text x="56" y="254" font-size="22" font-weight="700">Random</text>
+    <text x="56" y="278" font-size="18" fill="#6B6F73">случайные действия</text>
+    <text x="56" y="318" font-size="22" font-weight="700">«Пометить всё»</text>
+    <text x="56" y="342" font-size="18" fill="#6B6F73">атака на награду</text>
+  </g>
+
+  <g id="bars" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="20" font-weight="700">
+    <rect x="790" y="50" width="330" height="36" rx="6" fill="#14171A"/>
+    <text x="1108" y="75" text-anchor="end" fill="#FFFFFF">1.000</text>
+
+    <rect x="790" y="114" width="317.8" height="36" rx="6" fill="#2F7D4F"/>
+    <text x="1095" y="139" text-anchor="end" fill="#FFFFFF">0.963</text>
+
+    <rect x="790" y="178" width="127.4" height="36" rx="6" fill="#8DB89C"/>
+    <text x="929" y="203" fill="#14171A">0.386</text>
+
+    <rect x="624.7" y="242" width="165.3" height="36" rx="6" fill="#E3A39C"/>
+    <text x="612" y="267" text-anchor="end" fill="#14171A">−0.501</text>
+
+    <rect x="460" y="306" width="330" height="36" rx="6" fill="#C8372D"/>
+    <text x="474" y="331" fill="#FFFFFF">−1.000</text>
+  </g>
+</svg>

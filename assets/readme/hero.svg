@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Audit Gym: RL-среда для ИИ-аудитора</title>
+  <desc id="desc">Слева название и описание проекта. Справа фрагмент настоящей главной книги из эпизода EP-4A84A8A4, где красной обводкой отмечена строка с ошибкой конвертации: курс 4 сентября вместо 6 сентября, расхождение 1 967,94 тенге.</desc>
+
+  <rect width="1200" height="420" rx="22" fill="#F6F3EA"/>
+
+  <g id="title-block" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fill="#14171A">
+    <text x="56" y="78" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" letter-spacing="1.5" fill="#6B6F73">GENESIS HACKATHON · FINTECH</text>
+    <text x="52" y="168" font-size="88" font-weight="800" letter-spacing="-2">Audit Gym</text>
+    <text x="56" y="214" font-size="26">Синтетические компании со скрытыми</text>
+    <text x="56" y="246" font-size="26">ошибками учёта и RL-среда, где</text>
+    <text x="56" y="278" font-size="26">ИИ-аудитор получает награду только</text>
+    <text x="56" y="310" font-size="26">за <tspan font-weight="700" fill="#C8372D">доказанные</tspan> находки.</text>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#3E4246">
+      <text x="56" y="362">reset / step · 5 инструментов · 100 шагов</text>
+      <text x="56" y="390">Docker без сети · воспроизводимо по seed</text>
+    </g>
+  </g>
+
+  <g id="ledger-proof" transform="translate(636 52)" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace">
+    <rect width="512" height="250" rx="12" fill="#FFFFFF" stroke="#D9D4C5" stroke-width="1.5"/>
+    <text x="20" y="34" font-size="16" fill="#6B6F73">ledger.csv · EP-4A84A8A4 · KZT</text>
+    <g font-size="17" fill="#6B6F73">
+      <text x="20" y="70">row_id</text>
+      <text x="168" y="70">счёт</text>
+      <text x="370" y="70" text-anchor="end">Дт</text>
+      <text x="492" y="70" text-anchor="end">Кт</text>
+    </g>
+    <line x1="20" y1="82" x2="492" y2="82" stroke="#D9D4C5" stroke-width="1.5"/>
+    <g font-size="18" fill="#14171A">
+      <text x="20" y="112">L-T4MWW4HP</text><text x="168" y="112">4000</text><text x="370" y="112" text-anchor="end">—</text><text x="492" y="112" text-anchor="end">563 680,00</text>
+      <text x="20" y="144">L-4EAXR1DQ</text><text x="168" y="144">4000</text><text x="370" y="144" text-anchor="end">—</text><text x="492" y="144" text-anchor="end">371 792,92</text>
+      <text x="20" y="176" font-weight="700">L-V7F0H0SK</text><text x="168" y="176" font-weight="700">1200</text><text x="370" y="176" text-anchor="end" font-weight="700">371 792,92</text><text x="492" y="176" text-anchor="end">—</text>
+      <text x="20" y="208">L-1VANZBFP</text><text x="168" y="208">1200</text><text x="370" y="208" text-anchor="end">—</text><text x="492" y="208" text-anchor="end">5 450 793,28</text>
+      <text x="20" y="240" fill="#6B6F73">…</text>
+    </g>
+    <!-- обводка «красной ручкой аудитора» -->
+    <path d="M 10 160 C 120 150, 300 151, 384 156 C 396 158, 398 186, 384 188 C 280 194, 110 193, 12 188 C 2 186, 0 162, 14 159" fill="none" stroke="#C8372D" stroke-width="3" stroke-linecap="round"/>
+    <path d="M 300 192 L 300 278" fill="none" stroke="#C8372D" stroke-width="2" stroke-dasharray="5 5"/>
+  </g>
+
+  <g id="finding" transform="translate(636 330)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <rect x="200" y="0" width="312" height="66" rx="10" fill="#C8372D"/>
+    <text x="218" y="28" font-size="18" font-weight="700" fill="#FFFFFF">fx_conversion · Δ 1 967,94 KZT</text>
+    <text x="218" y="52" font-size="17" fill="#FFFFFF">курс 04.09 вместо 06.09</text>
+  </g>
+</svg>
