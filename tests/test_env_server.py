@@ -201,13 +201,15 @@ def test_time_limit(tmp):
 
 
 def test_generation_failed(tmp):
+    # Конфиг, который генератор отклоняет (max_errors > 12): работает и с заглушкой, и с настоящим генератором
+    bad = {"max_errors": 999}
     r = Run(tmp, episode=None)
     with r.env:
         with pytest.raises(EnvError) as e:
-            r.env.reset(1, {"mode": "train"})
+            r.env.reset(1, dict(bad, mode="train"))
         assert e.value.code == "GENERATION_FAILED"
         with pytest.raises(EnvError) as e:  # сервер жив
-            r.env.reset(2, {"mode": "eval"})
+            r.env.reset(2, dict(bad, mode="eval"))
         assert e.value.code == "GENERATION_FAILED"
 
 
