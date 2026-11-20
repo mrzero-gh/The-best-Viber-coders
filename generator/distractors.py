@@ -47,9 +47,16 @@ class DistractorMaker(Injector):
             return None
         return day + timedelta(days=self.rng.randint(1, min(max_days, room)))
 
+    def _reserved(self, doc):
+        """Короткие счета оставлены дублям (в том числе валютным): отвлекающие случаи их не берут."""
+        small = set(self.h.small_invoice_ids)
+        if "payment_id" in doc:
+            return any(r["invoice_id"] in small for r in doc["invoice_refs"])
+        return doc["invoice_id"] in small
+
     def _single_payments(self):
         return [p for p in self.h.payments if p["amount_minor"] > 0 and len(p["invoice_refs"]) == 1
-                and self._free(p) and self._later_day(p["timestamp"], 5)]
+                and self._free(p) and not self._reserved(p) and self._later_day(p["timestamp"], 5)]
 
     def _new_payment(self, ts, currency, amount, invoice_id, ref_amount):
         pay = {"doc_id": self.ids.new("DOC"), "payment_id": self.ids.new("PAY"), "timestamp": fmt_ts(ts),
@@ -138,8 +145,8 @@ class DistractorMaker(Injector):
         """Документ в последний день периода в 23:xx по местному времени: он в периоде."""
         h, ctx = self.h, self.h.ctx
         paid = {r["invoice_id"] for p in h.payments for r in p["invoice_refs"]}
-        invs = [i for i in h.invoices if i["invoice_id"] not in paid and self._free(i)]
-        pays = [p for p in h.payments if p["amount_minor"] > 0 and self._free(p)]
+        invs = [i for i in h.invoices if i["invoice_id"] not in paid and self._free(i) and not self._reserved(i)]
+        pays = [p for p in h.payments if p["amount_minor"] > 0 and self._free(p) and not self._reserved(p)]
         doc = self._pick_doc(invs, pays)
         if doc is None:
             return

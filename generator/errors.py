@@ -111,6 +111,14 @@ class Injector:
 
     # ---------- payment_allocation ----------
 
+    def _recoverable(self, pay):
+        """Разнесённую сумму можно однозначно восстановить по проводке 1200, только если
+        1 minor валюты платежа стоит не меньше 1 minor базовой (курс × 10^разность разрядов >= 1)."""
+        ctx = self.h.ctx
+        inv = next(i for i in self.h.invoices if i["invoice_id"] == pay["invoice_refs"][0]["invoice_id"])
+        factor = ctx.rate(pay["currency"], ctx.local_date(inv["issued_at"]))
+        return factor * Decimal(10) ** (ctx.exps[ctx.base] - ctx.exps[pay["currency"]]) >= 1
+
     def _partial(self, total):
         """Сколько разнесено в книге: ничего (1 из 4) или 20–80 %, всегда меньше total."""
         if self.rng.randint(1, 4) == 1:
@@ -130,7 +138,7 @@ class Injector:
         Две ошибки: period_cutoff [payment] и payment_allocation [invoice, payment]."""
         h, ctx = self.h, self.h.ctx
         cands = [p for p in h.payments if p["amount_minor"] > 0 and len(p["invoice_refs"]) == 1
-                 and p["currency"] != ctx.base and self._free(p)]
+                 and p["currency"] != ctx.base and self._free(p) and self._recoverable(p)]
         if not cands:
             return None
         pay = self.rng.choice(cands)
@@ -169,7 +177,7 @@ class Injector:
             cands = [p for p in h.payments
                      if p["payment_id"] not in self.used and p["amount_minor"] > 0
                      and len(p["invoice_refs"]) == 1
-                     and p["invoice_refs"][0]["invoice_id"] not in self.used]
+                     and p["invoice_refs"][0]["invoice_id"] not in self.used and self._recoverable(p)]
             if not cands:
                 return None
             payment = self.rng.choice(cands)
@@ -296,6 +304,19 @@ class Injector:
                                      hour=self.rng.randint(9, 18), minute=self.rng.randint(0, 59))
         return fmt_ts(t)
 
+    def _near_boundary(self, original_ts, after_end):
+        """Время проводки внутри периода у той границы, за которую ушёл документ:
+        последние 1–3 дня (но не раньше исходной даты) или первые 0–2 дня периода."""
+        ctx = self.h.ctx
+        if after_end:
+            day = ctx.period_end.date() - timedelta(days=self.rng.randint(1, 3))
+        else:
+            day = ctx.period_start.date() + timedelta(days=self.rng.randint(0, 2))
+        t = ctx.period_start.replace(year=day.year, month=day.month, day=day.day,
+                                     hour=self.rng.randint(9, 18), minute=self.rng.randint(0, 59))
+        orig = ctx.local_dt(original_ts)
+        return fmt_ts(max(t, orig) if after_end else min(t, orig))
+
     def period_cutoff(self, scenario=None, doc=None, after_end=None, allocated=None):
         """Дата документа вне периода, а проводки остались внутри периода (по прежней дате)."""
         h = self.h
@@ -309,8 +330,12 @@ class Injector:
                 return None
         is_pay = "payment_id" in doc
         field = "timestamp" if is_pay else "issued_at"
-        posted_at = doc[field]
-        new_ts = self._outside_time(after_end=True if is_pay else after_end)
+        original_ts = doc[field]
+        if is_pay or after_end is None and self.rng.randint(0, 1) == 0:
+            after_end = True  # платёж раньше счёта был бы странным: платежи уходят только вперёд
+        after_end = bool(after_end)
+        new_ts = self._outside_time(after_end=after_end)
+        posted_at = self._near_boundary(original_ts, after_end)
         doc[field] = new_ts
         if not is_pay:
             doc["due_at"] = fmt_ts(h.ctx.local_dt(new_ts) + timedelta(days=30))
@@ -318,7 +343,9 @@ class Injector:
         self.used |= self._linked(doc)
         old, new = self._repost(doc, posted_at=posted_at, allocations=allocated)
         changes = ([{"table": "payments" if is_pay else "invoices", "record_id": key, "field": field,
-                     "before": posted_at, "after": new_ts}]
+                     "before": original_ts, "after": new_ts},
+                    {"table": "ledger", "record_id": key, "field": "posted_at",
+                     "before": original_ts, "after": posted_at}]
                    + _deleted(old, key) + _created("ledger", new, key))
         evidence = [[doc["doc_id"], r["row_id"]] for r in sorted(new, key=lambda r: r["row_id"])]
         amount = doc["amount_minor"] if is_pay else doc["total_minor"]
