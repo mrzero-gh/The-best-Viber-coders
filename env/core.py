@@ -29,6 +29,10 @@ _TASK = ("Вы аудитор. Изучите книгу проводок, сч�
          "их через submit в формате findings.")
 
 
+class GraderError(Exception):
+    """Оценщик отклонил эталон эпизода (дефект данных, а не ошибка агента). Эпизод уже завершён."""
+
+
 def _default_grader(*args, **kwargs):
     """Оценщик по умолчанию; импорт внутри, чтобы тесты могли подставить свой."""
     from grader.evaluate import evaluate
@@ -132,8 +136,15 @@ class AuditCore:
             findings_obj = {"episode_id": self.episode_id, "findings": []}
         else:
             findings_obj = findings
-        res = self._grader(findings_obj, self._truth, self.episode_id, inspection_steps,
-                           public_ids=self.episode.public_ids())
+        try:
+            res = self._grader(findings_obj, self._truth, self.episode_id, inspection_steps,
+                               public_ids=self.episode.public_ids())
+        except ValueError as e:
+            # повреждённый эталон: эпизод закрываем, чтобы агент не продолжал шаги после submit
+            self.finished = True
+            self._terminated = not truncated
+            self._truncated = truncated
+            raise GraderError(str(e)) from None
         self.grader_result = res
         self.inspection_steps = inspection_steps
         if status == "submitted" and not res.get("valid", True):
