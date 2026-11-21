@@ -3,6 +3,7 @@
 Сертификат остаётся в private/. Его результат не меняет награду агенту.
 """
 import argparse
+import itertools
 import json
 from pathlib import Path
 
@@ -12,11 +13,29 @@ from grader.evidence import PublicEvidence, read_public, require
 from grader.validation import validate_truth
 
 
+def _choices(data: PublicEvidence, affected: list[str]) -> list[list[dict]]:
+    """Варианты прочтения affected_ids: invoice_id и payment_id - разные пространства, и одна строка
+    может быть ID и счёта, и платежа. Доказательство принимается, если его даёт хотя бы один вариант
+    и все доказавшие варианты дают одну сумму."""
+    options = [data.doc_options(identifier) for identifier in sorted(affected)]
+    require(all(options), "affected IDs must be invoice/payment IDs")
+    return [list(combo) for combo in itertools.islice(itertools.product(*options), 64)]
+
+
 def _prove(data: PublicEvidence, kind: str, affected: list[str], evidence: set[str]) -> tuple[int, str]:
-    require(all(identifier in data.records for identifier in evidence), "evidence record is not public")
-    docs = [data.records[identifier] for identifier in sorted(affected)]
-    require(all("doc_id" in doc and identifier in (doc.get("invoice_id"), doc.get("payment_id"))
-                for identifier, doc in zip(sorted(affected), docs)), "affected IDs must be invoice/payment IDs")
+    require(all(identifier in data.ids for identifier in evidence), "evidence record is not public")
+    results, errors = set(), []
+    for docs in _choices(data, affected):
+        try:
+            results.add(_prove_docs(data, kind, docs, evidence))
+        except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
+            errors.append(str(exc))
+    require(bool(results), errors[0] if errors else "no proof")
+    require(len(results) == 1, "affected IDs are ambiguous across invoice and payment IDs")
+    return results.pop()
+
+
+def _prove_docs(data: PublicEvidence, kind: str, docs: list[dict], evidence: set[str]) -> tuple[int, str]:
     if kind == "duplicate_invoice":
         require(len(docs) == 2 and all("invoice_id" in doc and "doc_id" in doc for doc in docs),
                 "duplicate needs two invoice IDs")
@@ -87,18 +106,34 @@ def _prove(data: PublicEvidence, kind: str, affected: list[str], evidence: set[s
     return candidates[0], data.base
 
 
+def _distractor_options(data: PublicEvidence, identifier: str) -> list[dict]:
+    """Документ по ID отвлекающего случая: invoice_id, payment_id, doc_id или row_id (пространства разные)."""
+    options = data.doc_options(identifier)
+    if identifier in data.documents:
+        options.append(data.documents[identifier])
+    row = data.ledger.get(identifier)
+    if row is not None:
+        options.append(data.payments[row["payment_id"]] if row["payment_id"] is not None
+                       else data.invoices[row["invoice_id"]])
+    unique = {doc["doc_id"]: doc for doc in options}
+    require(bool(unique), "distractor reference is not a document or ledger row")
+    return list(unique.values())
+
+
 def _distractor(data: PublicEvidence, item: dict) -> None:
-    docs = {}
-    for identifier in item["record_ids"]:
-        record = data.records[identifier]
-        if "doc_id" in record:
-            doc = record
-        elif "row_id" in record:
-            doc = (data.payments[record["payment_id"]] if record["payment_id"] is not None
-                   else data.invoices[record["invoice_id"]])
-        else:
-            raise ValueError("distractor reference is not a document or ledger row")
-        docs[doc["doc_id"]] = doc
+    """Отвлекающий случай подтверждён, если его подтверждает хотя бы одно прочтение ID."""
+    options = [_distractor_options(data, identifier) for identifier in item["record_ids"]]
+    errors = []
+    for combo in itertools.islice(itertools.product(*options), 64):
+        try:
+            _distractor_docs(data, item, {doc["doc_id"]: doc for doc in combo})
+            return
+        except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
+            errors.append(str(exc))
+    raise ValueError(errors[0])
+
+
+def _distractor_docs(data: PublicEvidence, item: dict, docs: dict) -> None:
     for doc in docs.values():
         data.assert_clean(doc)
     invoices = [doc for doc in docs.values() if "invoice_id" in doc]

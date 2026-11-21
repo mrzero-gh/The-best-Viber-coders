@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from fractions import Fraction
 
 from common.jsonio import canonical_dumps, write_jsonl
 from generator.build import generate_episode
@@ -309,3 +310,69 @@ def test_empty_journal_is_not_certified(tmp_path):
     assert report["clean_history_balance"]["status"] == "ok"
     assert not report["valid"]
     assert "declared issue has no change in public data" in _rules_errors(report)
+
+
+# ---------- второй внешний отчёт 22.11: курс на границе округления, контрагент, пространства ID ----------
+
+def _half_even(x):
+    whole = x.numerator // x.denominator
+    rest = x - whole
+    return whole + (1 if rest > Fraction(1, 2) or (rest == Fraction(1, 2) and whole % 2) else 0)
+
+
+def _rate_exists_brute(pairs) -> bool:
+    points = sorted({Fraction(2 * c + d, 2 * n) for n, c in pairs for d in (-1, 1)})
+    candidates = {p for p in points if p > 0} | {(a + b) / 2 for a, b in zip(points, points[1:]) if a + b > 0}
+    candidates.add(points[-1] + 1)
+    return any(all(_half_even(n * k) == c for n, c in pairs) for k in candidates)
+
+
+def test_single_fx_rate_is_exact_at_rounding_boundary():
+    # прежняя проверка «1010 и 2900 пропорциональны» пропускала невозможные пары: например,
+    # платёж 1 и остаток 1 при 1010 = 1 и 2900 = 2 не даёт ни один общий курс
+    from grader.consistency import _one_rate
+    assert not _one_rate([(1, 1), (1, 2)])
+    assert _one_rate([(3, 2), (1, 0)])  # k = 1/2: 1.5 -> 2 и 0.5 -> 0 (к чётному)
+    for total in range(1, 10):
+        for cash in range(1, 20):
+            for remainder in range(1, total + 1):
+                for rest in range(0, 20):
+                    pairs = [(total, cash), (remainder, rest)]
+                    assert _one_rate(pairs) == _rate_exists_brute(pairs), pairs
+
+
+def test_counterparty_substitution_is_caught(tmp_path):
+    # у строки проводки счёта с ошибкой курса подменён контрагент: суммы и счета прежние
+    ep = _copy(tmp_path)
+    public, truth, prov = _load(ep)
+    other = next(i["entity_id"] for i in public["invoices"]
+                 if i["entity_id"] != next(r for r in public["ledger"] if r["row_id"] == "L-1H8HN6B9")["entity_id"])
+    next(r for r in public["ledger"] if r["row_id"] == "L-1H8HN6B9")["entity_id"] = other
+    _save(ep, public)
+    report = certify_episode(ep)
+    assert not report["valid"]
+    assert "INV-MCB947RJ: ledger rows name another counterparty" in _rules_errors(report)
+
+
+def test_same_id_in_different_tables(tmp_path):
+    # жюри меняет ID по пространствам независимо: одна и та же строка может стать ID строки книги,
+    # документа, счёта, платежа и контрагента. Это разные ID, а не ложная связь
+    from scripts.transform_episode import REMAP_PREFIXES, _apply_mapping, _rehash_clean_history, _token_re
+    ep = _copy(tmp_path)
+    token, mapping, counters = _token_re(REMAP_PREFIXES), {}, {}
+    for path in sorted(ep.rglob("*")):
+        if path.is_file() and path.suffix in (".json", ".jsonl", ".csv"):
+            for found in sorted(set(m.group(0) for m in token.finditer(path.read_text(encoding="utf-8")))):
+                if found not in mapping:
+                    prefix = found.split("-", 1)[0]
+                    counters[prefix] = counters.get(prefix, 0) + 1
+                    mapping[found] = f"ID-{counters[prefix]:08d}"
+    _apply_mapping(ep, mapping, REMAP_PREFIXES)
+    _rehash_clean_history(ep)
+    public, truth, prov = _load(ep)
+    invoice_ids = {i["invoice_id"] for i in public["invoices"]}
+    payment_ids = {p["payment_id"] for p in public["payments"]}
+    assert invoice_ids & payment_ids and invoice_ids & {r["row_id"] for r in public["ledger"]}
+    report = certify_episode(ep)
+    assert report["valid"], (report["public_errors"], _rules_errors(report),
+                             [i for i in report["issues"] if not i["valid"]][:2])

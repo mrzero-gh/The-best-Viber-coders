@@ -62,7 +62,9 @@ class PublicEvidence:
         require(self.base in self.exponents and all(
             type(value) is int and 0 <= value <= 4 for value in self.exponents.values()
         ), "invalid currency exponents")
-        self.records = {}
+        # ID уникальны внутри своего пространства (таблицы); одинаковые строки в разных таблицах -
+        # разные ID, а не ложная связь (определения проверок жюри, блок 4)
+        self.ids = set()
         self.invoices = self._index(public["invoices"], "invoice_id")
         self.payments = self._index(public["payments"], "payment_id")
         self.ledger = self._index(public["ledger"], "row_id")
@@ -70,12 +72,12 @@ class PublicEvidence:
         self.fx = {}
         for row in public["fx"]:
             key = f"FX:{row['date']}:{row['source_currency']}:{row['target_currency']}"
-            require(key not in self.records, "duplicate FX ID")
+            require(key not in self.fx, "duplicate FX ID")
             require(type(row["rate"]) is str, "FX rate must be a decimal string")
             rate = Decimal(row["rate"])
             require(rate.is_finite() and rate > 0, "FX rate must be positive and finite")
             self.fx[key] = rate
-            self.records[key] = row
+            self.ids.add(key)
         for doc in self.documents.values():
             self.local(self.timestamp(doc))
             require(doc["currency"] in self.exponents, "missing currency exponent")
@@ -113,10 +115,14 @@ class PublicEvidence:
         result = {}
         for row in rows:
             identifier = row[key]
-            require(identifier not in self.records, "duplicate public record ID")
+            require(identifier not in result, f"duplicate {key}")
             result[identifier] = row
-            self.records[identifier] = row
+            self.ids.add(identifier)
         return result
+
+    def doc_options(self, identifier: str) -> list[dict]:
+        """Документы с таким invoice_id или payment_id (ID двух пространств могут совпасть)."""
+        return [doc for doc in (self.invoices.get(identifier), self.payments.get(identifier)) if doc is not None]
 
     def local(self, timestamp: str) -> datetime:
         value = datetime.fromisoformat(timestamp)
