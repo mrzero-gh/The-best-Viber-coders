@@ -132,6 +132,7 @@ class Injector:
         return factor * Decimal(10) ** (ctx.exps[ctx.base] - ctx.exps[pay["currency"]]) >= 1
 
     allocation_variant = "any"  # errors.payment_allocation.variant: any | missing | partial
+    pending_dfx = 0  # сколько дублей с неверным курсом ещё впереди (им нужны короткие валютные счета)
 
     def _partial(self, total, variant="any"):
         """Сколько разнесено в книге: ничего (1 из 4) или 20–80 %, всегда меньше total.
@@ -167,6 +168,15 @@ class Injector:
         if not cands:
             return None
         pay = self.rng.choice(cands)
+        small = set(h.small_invoice_ids)
+        if self.pending_dfx and pay["invoice_refs"][0]["invoice_id"] in small:
+            # короткий валютный счёт нужен дублю с неверным курсом: если других таких не хватит,
+            # берём платёж по обычному счёту (перевыбор только в этом случае)
+            spare = [i for i in h.invoices if i["invoice_id"] in small and i["currency"] != ctx.base
+                     and i["invoice_id"] != pay["invoice_refs"][0]["invoice_id"] and self._free(i)]
+            other = [p for p in cands if p["invoice_refs"][0]["invoice_id"] not in small]
+            if len(spare) < self.pending_dfx and other:
+                pay = self.rng.choice(other)
         ref = pay["invoice_refs"][0]
         allocated = 0 if missing_only else self._partial(ref["amount_minor"])
         name = "partial_fx_payment_at_cutoff"
@@ -183,6 +193,7 @@ class Injector:
         """Дубль валютного счёта, ещё и пересчитанный по неверному курсу.
         Две ошибки: duplicate_invoice [оригинал, дубль] и fx_conversion [дубль]."""
         name = "duplicate_invoice_wrong_fx"
+        self.pending_dfx = max(0, self.pending_dfx - 1)
         made = self.duplicate_invoice(scenario=name, foreign_only=True)
         if made is None:
             return None
@@ -413,6 +424,7 @@ def inject(history, cfg, rng, ids, counts, used=(), interactions=None) -> Inject
     inj = Injector(history, rng, ids)
     inj.used = set(used)
     inj.allocation_variant = cfg["errors"]["payment_allocation"].get("variant", "any")
+    inj.pending_dfx = (interactions or {}).get("duplicate_invoice_wrong_fx", 0)
     # сначала сценарии: им нужны особые кандидаты (валютные платежи и короткие валютные счета)
     for name in INTERACTIONS:
         for _ in range((interactions or {}).get(name, 0)):
