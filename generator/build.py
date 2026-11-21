@@ -12,12 +12,13 @@ from datetime import datetime
 from pathlib import Path
 
 from common.jsonio import canonical_dumps, write_jsonl
-from generator.config import normalize_config
+from generator.config import DOCUMENT_BOUNDS, LEDGER_BOUNDS, normalize_config
 from generator.distractors import cap_distractors, make_distractors, plan_distractors
 from generator.errors import inject, plan_errors, plan_interactions
 from generator.history import build_clean
 from generator.rng import IdFactory, stream
 
+SIZE_ATTEMPTS = 4  # сборок под узкий диапазон размеров; обычно хватает первой
 GENERATOR_VERSION = "0.6.0"  # 0.6.0: допуск суммы по типам, variant у payment_allocation
 SCHEMA_VERSION = "1.0"
 LEDGER_FIELDS = ["row_id", "timestamp", "account", "debit_minor", "credit_minor",
@@ -174,6 +175,54 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
     cfg = normalize_config(config)
     seed = _int_seed(seed, "seed")
     id_seed = seed if id_seed is None else _int_seed(id_seed, "id_seed")
+    best = None
+    shift = (0, 0)
+    for attempt in range(SIZE_ATTEMPTS):
+        built = _build_once(cfg, seed, id_seed, shift)
+        miss = _size_miss(cfg, built["h"])
+        # выбор: никогда не за пределами кейса; лучше недобор, чем выход за верхнюю границу config
+        # (так было и до повторной сборки); затем меньший промах; при равенстве - более ранняя попытка
+        rank = (_outside_case(built["h"]), miss[0] < 0 or miss[1] < 0, abs(miss[0]) + abs(miss[1]))
+        if best is None or rank < best[0]:
+            best = (rank, attempt, shift, built)
+        if miss == (0, 0):
+            break
+        shift = (shift[0] + _aim(miss[0], cfg["size"]["ledger_rows"]),
+                 shift[1] + _aim(miss[1], cfg["size"]["documents"]))
+    _, attempt, shift, built = best
+    extra = dict(built["extra"])
+    if attempt:  # в эпизодах, собранных с первой попытки, generation.json не меняется
+        extra["size_retry"] = {"attempt": attempt, "shift_rows": shift[0], "shift_documents": shift[1]}
+    return write_episode(built["h"], cfg, out_dir, seed, id_seed, built["issues"], built["distractors"],
+                         built["mutations"], built["clean_sha"], clean_diff=built["clean_diff"], extra=extra)
+
+
+def _size_miss(cfg, h) -> tuple:
+    """Насколько итог вышел за диапазон config: (строки, документы); >0 - не хватает, <0 - лишние."""
+    def miss(value, bounds):
+        lo, hi = bounds
+        return lo - value if value < lo else hi - value if value > hi else 0
+    return (miss(len(h.ledger), cfg["size"]["ledger_rows"]),
+            miss(len(h.invoices) + len(h.payments), cfg["size"]["documents"]))
+
+
+def _outside_case(h) -> bool:
+    """Итог вне общих пределов кейса (200-2000 проводок, 20-200 документов)."""
+    docs = len(h.invoices) + len(h.payments)
+    return not (LEDGER_BOUNDS[0] <= len(h.ledger) <= LEDGER_BOUNDS[1]
+                and DOCUMENT_BOUNDS[0] <= docs <= DOCUMENT_BOUNDS[1])
+
+
+def _aim(miss: int, bounds) -> int:
+    """Сдвиг цели: на величину промаха и ещё на полдиапазона внутрь, чтобы не попасть снова на край."""
+    if miss == 0:
+        return 0
+    half = (bounds[1] - bounds[0]) // 2
+    return miss + (half if miss > 0 else -half)
+
+
+def _build_once(cfg, seed: int, id_seed: int, shift) -> dict:
+    """Одна сборка в памяти. Потоки rng создаются заново от seed: попытка детерминирована."""
     content = stream(seed, "content")
     errors = stream(seed, "errors")
     dist_rng = stream(seed, "distractors")
@@ -203,7 +252,8 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
                     foreign_docs=2 * planned["fx_conversion"] + 2 * n_dfx
                     + (iplanned["partial_fx_payment_at_cutoff"] + 1 if iplanned["partial_fx_payment_at_cutoff"] else 0),
                     # payment_allocation нужен платёж, сумму которого восстановят по проводке (+1 в запас)
-                    recoverable_paid=planned["payment_allocation"] + 1 if planned["payment_allocation"] else 0)
+                    recoverable_paid=planned["payment_allocation"] + 1 if planned["payment_allocation"] else 0,
+                    size_shift=shift)
     dm = make_distractors(h, dist_rng, ids, dplanned,
                           keep_foreign=planned["fx_conversion"] + 2 * iplanned["partial_fx_payment_at_cutoff"])
     clean_tables = copy.deepcopy(sorted_tables(h))  # чистая история уже с отвлекающими случаями
@@ -214,11 +264,11 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
     dinjected = {k: sum(1 for x in dm.items if x["kind"] == k) for k in dplanned}
     # сценарий засчитан, если обе его ошибки внесены (у каждой scenario = имя)
     iinjected = {s: sum(1 for i in inj.issues if i["scenario"] == s) // 2 for s in iplanned}
-    return write_episode(h, cfg, out_dir, seed, id_seed, inj.issues, dm.items, inj.mutations, clean_sha,
-                         clean_diff=clean_diff,
-                         extra={"errors_planned": planned, "errors_injected": injected,
-                                "interactions_planned": iplanned, "interactions_injected": iinjected,
-                                "distractors_planned": dplanned, "distractors_injected": dinjected})
+    return dict(h=h, issues=inj.issues, distractors=dm.items, mutations=inj.mutations, clean_sha=clean_sha,
+                clean_diff=clean_diff,
+                extra={"errors_planned": planned, "errors_injected": injected,
+                       "interactions_planned": iplanned, "interactions_injected": iinjected,
+                       "distractors_planned": dplanned, "distractors_injected": dinjected})
 
 
 def main(argv=None) -> int:

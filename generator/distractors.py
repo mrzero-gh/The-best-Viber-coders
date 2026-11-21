@@ -63,16 +63,21 @@ class DistractorMaker(Injector):
 
     keep_foreign = 0  # сколько валютных счетов нужно ошибкам (fx_conversion, сценарий 1)
 
-    def _spare(self, doc):
-        """Валютных счетов мало: отвлекающие случаи берут документы в базовой валюте, чтобы валютные
-        остались ошибкам (ошибки важнее). Пока валютных счетов с запасом, выбор прежний."""
-        ctx = self.h.ctx
-        if not self.keep_foreign or doc["currency"] == ctx.base:
+    def _foreign_plenty(self) -> bool:
+        """Свободных валютных счетов с запасом. Считается один раз на отбор кандидатов: пока
+        отбор идёт, состояние не меняется (раньше пересчёт на каждый документ - O(n²))."""
+        if not self.keep_foreign:
             return True
+        ctx = self.h.ctx
         small = set(self.h.small_invoice_ids)
         free = sum(1 for i in self.h.invoices if i["currency"] != ctx.base
                    and i["invoice_id"] not in small and self._free(i))
         return free > self.keep_foreign + 2  # запас 2: столько же, сколько при обычных размерах хватало
+
+    def _spare(self, doc, plenty: bool) -> bool:
+        """Валютных счетов мало: отвлекающие случаи берут документы в базовой валюте, чтобы валютные
+        остались ошибкам (ошибки важнее). Пока валютных счетов с запасом, выбор прежний."""
+        return plenty or doc["currency"] == self.h.ctx.base
 
     def _reserved(self, doc):
         """Короткие счета оставлены дублям (в том числе валютным): отвлекающие случаи их не берут."""
@@ -82,9 +87,10 @@ class DistractorMaker(Injector):
         return doc["invoice_id"] in small
 
     def _single_payments(self):
+        plenty = self._foreign_plenty()
         return [p for p in self.h.payments if p["amount_minor"] > 0 and len(p["invoice_refs"]) == 1
                 and self._free(p) and not self._reserved(p) and self._later_day(p["timestamp"], 5)
-                and self._spare(p)]
+                and self._spare(p, plenty)]
 
     def _new_payment(self, ts, currency, amount, invoice_id, ref_amount):
         pay = {"doc_id": self.ids.new("DOC"), "payment_id": self.ids.new("PAY"), "timestamp": fmt_ts(ts),
@@ -178,10 +184,11 @@ class DistractorMaker(Injector):
         """Документ в последний день периода в 23:xx по местному времени: он в периоде."""
         h, ctx = self.h, self.h.ctx
         paid = {r["invoice_id"] for p in h.payments for r in p["invoice_refs"]}
+        plenty = self._foreign_plenty()
         invs = [i for i in h.invoices if i["invoice_id"] not in paid and self._free(i) and not self._reserved(i)
-                and self._spare(i)]
+                and self._spare(i, plenty)]
         pays = [p for p in h.payments if p["amount_minor"] > 0 and self._free(p) and not self._reserved(p)
-                and self._spare(p)]
+                and self._spare(p, plenty)]
         doc = self._pick_doc(invs, pays)
         if doc is None:
             return
