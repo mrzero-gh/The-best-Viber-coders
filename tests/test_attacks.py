@@ -8,7 +8,7 @@ from tests.test_grader_fixtures import EPISODE_ID, answer_for, issue, truth_for
 
 
 @pytest.mark.parametrize("field,value", [
-    ("type", "invented"), ("type", []), ("claimed_amount_minor", True),
+    ("type", ""), ("type", []), ("claimed_amount_minor", True),
     ("claimed_amount_minor", 1000.0), ("claimed_amount_minor", "1000"),
     ("claimed_amount_minor", float("nan")), ("claimed_amount_minor", float("inf")),
     ("currency", None), ("currency", ""), ("currency", 840),
