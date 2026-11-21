@@ -38,6 +38,7 @@ HINT_WORDS = ("дубл", "duplicate", "ошибк", "error", "cutoff", "wrong",
 
 _ID_RE = re.compile(r"[A-Z]{2,4}-[0-9A-Z]{8}")
 _HEX_RE = re.compile(r"[0-9a-f]{32,}")
+_ALL_ERROR_TYPES = ("duplicate_invoice", "payment_allocation", "fx_conversion", "period_cutoff")
 _PUBLIC_FILES = ("manifest.json", "policy.json", "ledger.csv", "invoices.jsonl", "payments.jsonl", "fx.csv")
 
 
@@ -282,8 +283,8 @@ def _bad_input(sink, env):
         {"tool": "calculator", "args": {"expression": "(" * 300}},
         {"tool": "calculator", "args": {"expression": "9" * 300}},
         {"tool": "calculator", "args": {"expression": "open('/etc/passwd')"}},
-        {"tool": "submit", "args": {}},
-        {"tool": "submit", "args": {"findings": [], "extra": 1}},
+        # submit без findings или с лишним аргументом теперь завершает эпизод (правило 8 жюри),
+        # поэтому здесь его нет: структурные ошибки submit проверяет сценарий invalid findings
         "строка вместо действия",
         None,
         [],
@@ -508,7 +509,13 @@ def public_hints(episode_dir) -> list:
     for name in _PUBLIC_FILES:
         path = pub / name
         if name.endswith(".json"):
-            walk(name, "", _read(path))
+            data = _read(path)
+            by_type = data.get("amount_tolerance_minor_by_type") if name == "policy.json" else None
+            if isinstance(by_type, dict) and set(by_type) == set(_ALL_ERROR_TYPES):
+                # допуск суммы публикуется для всех четырёх типов в каждом эпизоде одинаково:
+                # названия типов здесь не подсказка о том, какие ошибки внесены
+                data = {k: v for k, v in data.items() if k != "amount_tolerance_minor_by_type"}
+            walk(name, "", data)
         elif name.endswith(".jsonl"):
             for line in path.read_text(encoding="utf-8").splitlines():
                 if line.strip():

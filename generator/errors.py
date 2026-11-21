@@ -11,7 +11,13 @@ from generator.config import ERROR_TYPES, INTERACTIONS
 from generator.history import fmt_ts, post_invoice, post_payment
 from generator.rng import IdFactory
 
-TOLERANCE_MINOR = 1
+# Допуск суммы по типам (правила жюри: по умолчанию τ=0, τ>0 только при документированном
+# округлении). duplicate_invoice и period_cutoff - сумма документа как есть, округления нет.
+# fx_conversion - разница пересчёта в базовую валюту после округления ROUND_HALF_EVEN;
+# payment_allocation - разнесённая сумма валютного платежа восстанавливается из проводки
+# в базовой валюте, это тоже округление. Значения публикуются в policy.json.
+TOLERANCE_BY_TYPE = {"duplicate_invoice": 0, "payment_allocation": 1, "fx_conversion": 1,
+                     "period_cutoff": 0}
 MIN_FX_GAP_MINOR = 100  # расхождение FX много больше допуска: не путается с округлением
 
 
@@ -69,7 +75,7 @@ class Injector:
         self.issues.append({
             "issue_id": iid, "type": kind, "affected_ids": sorted(affected),
             "expected_amount_minor": amount, "currency": currency,
-            "amount_tolerance_minor": TOLERANCE_MINOR,
+            "amount_tolerance_minor": TOLERANCE_BY_TYPE[kind],
             "evidence_sets": [sorted(s) for s in evidence_sets], "scenario": scenario})
         self.mutations.append({"issue_id": iid, "type": kind, "changes": changes})
         return iid
@@ -119,8 +125,15 @@ class Injector:
         factor = ctx.rate(pay["currency"], ctx.local_date(inv["issued_at"]))
         return factor * Decimal(10) ** (ctx.exps[ctx.base] - ctx.exps[pay["currency"]]) >= 1
 
-    def _partial(self, total):
-        """Сколько разнесено в книге: ничего (1 из 4) или 20–80 %, всегда меньше total."""
+    allocation_variant = "any"  # errors.payment_allocation.variant: any | missing | partial
+
+    def _partial(self, total, variant="any"):
+        """Сколько разнесено в книге: ничего (1 из 4) или 20–80 %, всегда меньше total.
+        variant="missing" - всегда ничего, "partial" - всегда часть (D09–D11 у жюри)."""
+        if variant == "missing":
+            return 0
+        if variant == "partial":
+            return max(1, min(total * self.rng.randint(20, 80) // 100, total - 1)) if total >= 2 else 0
         if self.rng.randint(1, 4) == 1:
             return 0
         return min(total * self.rng.randint(20, 80) // 100, total - 1)
@@ -184,7 +197,8 @@ class Injector:
         pid = payment["payment_id"]
         ref = payment["invoice_refs"][0]
         total = ref["amount_minor"]
-        allocated = self._partial(total)
+        # вариант из конфига относится к самостоятельной ошибке, не к совмещённому сценарию
+        allocated = self._partial(total, self.allocation_variant if scenario is None else "any")
         by_id = {inv["invoice_id"]: inv for inv in h.invoices}
         old = [r for r in h.ledger if r["payment_id"] == pid]
         h.ledger = [r for r in h.ledger if r["payment_id"] != pid]
@@ -359,6 +373,7 @@ def inject(history, cfg, rng, ids, counts, used=(), interactions=None) -> Inject
     """
     inj = Injector(history, rng, ids)
     inj.used = set(used)
+    inj.allocation_variant = cfg["errors"]["payment_allocation"].get("variant", "any")
     # сначала сценарии: им нужны особые кандидаты (валютные платежи и короткие валютные счета)
     for name in INTERACTIONS:
         for _ in range((interactions or {}).get(name, 0)):

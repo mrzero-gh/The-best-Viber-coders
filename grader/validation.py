@@ -86,9 +86,10 @@ def validate_truth(truth: dict, episode_id: str) -> None:
             raise ValueError("truth: duplicate issue ID")
         seen_ids.add(issue["issue_id"])
         for ids in [issue["affected_ids"], *issue["evidence_sets"]]:
-            canonical = canonical_ids(ids)
-            if "" in canonical or len(canonical) != len(ids):
-                raise ValueError("truth: empty or duplicate normalized ID")
+            # повторы допустимы: это множество (правило 2), а после смены ID жюри одинаковые
+            # строки могут оказаться в разных таблицах (счёт и платёж одной ошибки)
+            if "" in canonical_ids(ids):
+                raise ValueError("truth: empty normalized ID")
     distractor_ids = [item["distractor_id"] for item in truth["distractors"]]
     if len(distractor_ids) != len(set(distractor_ids)):
         raise ValueError("truth: duplicate distractor ID")

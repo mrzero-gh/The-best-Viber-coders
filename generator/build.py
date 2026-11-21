@@ -18,7 +18,7 @@ from generator.errors import inject, plan_errors, plan_interactions
 from generator.history import build_clean
 from generator.rng import IdFactory, stream
 
-GENERATOR_VERSION = "0.5.0"
+GENERATOR_VERSION = "0.6.0"  # 0.6.0: допуск суммы по типам, variant у payment_allocation
 SCHEMA_VERSION = "1.0"
 LEDGER_FIELDS = ["row_id", "timestamp", "account", "debit_minor", "credit_minor",
                  "currency", "entity_id", "invoice_id", "payment_id"]
@@ -66,14 +66,18 @@ def make_manifest(h, cfg, counts) -> dict:
             "config_version": cfg["config_version"]}
 
 
-def make_policy(h, tolerance=1) -> dict:
+def make_policy(h) -> dict:
+    from generator.errors import TOLERANCE_BY_TYPE
     return {"schema_version": SCHEMA_VERSION,
             "fx": {"rate_date": "document_local_date",
                    "direction": "1 source_currency = rate target_currency",
                    "target_currency": h.ctx.base},
             "period": {"timezone": h.ctx.tz_name, "start_inclusive": True, "end_exclusive": True},
             "rounding": {"mode": "ROUND_HALF_EVEN", "apply": "after_conversion_to_target_exponent"},
-            "amount_tolerance_minor": tolerance}
+            # общий верхний предел и точный допуск каждого типа; оценщик берёт минимум из
+            # опубликованного здесь и записанного в truth (env.episode.load_truth)
+            "amount_tolerance_minor": max(TOLERANCE_BY_TYPE.values()),
+            "amount_tolerance_minor_by_type": dict(TOLERANCE_BY_TYPE)}
 
 
 def tables_digest(tables) -> str:
