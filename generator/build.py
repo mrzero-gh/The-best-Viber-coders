@@ -13,7 +13,7 @@ from pathlib import Path
 
 from common.jsonio import canonical_dumps, write_jsonl
 from generator.config import normalize_config
-from generator.distractors import make_distractors, plan_distractors
+from generator.distractors import cap_distractors, make_distractors, plan_distractors
 from generator.errors import inject, plan_errors, plan_interactions
 from generator.history import build_clean
 from generator.rng import IdFactory, stream
@@ -181,6 +181,9 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
     planned = plan_errors(cfg, errors)
     iplanned = plan_interactions(cfg, errors, planned)
     dplanned = plan_distractors(cfg, dist_rng)
+    n_errors = sum(planned.values()) + 2 * sum(iplanned.values())
+    if n_errors:  # в чистом эпизоде (D02-D05) отвлекающие случаи не урезаются
+        dplanned = cap_distractors(dplanned, cfg["size"]["documents"][0], n_errors)
     n_dfx = iplanned["duplicate_invoice_wrong_fx"]
     n_dup = planned["duplicate_invoice"] + n_dfx
     n_one_row = (planned["payment_allocation"] + planned["fx_conversion"]
