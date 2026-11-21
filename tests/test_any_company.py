@@ -111,3 +111,71 @@ def test_payment_allocation_missing_fallback_in_cheap_currency(tmp_path):
     truth = _check(ep, "errors_planned", "payment_allocation")
     alloc = [i for i in truth["issues"] if i["type"] == "payment_allocation"]
     assert len(alloc) == 1 and alloc[0]["currency"] == "UZS"
+
+
+# Скрытые валюты жюри: разрядность минимальной единицы по ISO 4217, а не всегда 2
+@pytest.mark.parametrize("code,exp", [("VND", 0), ("CLP", 0), ("ISK", 0), ("OMR", 3), ("TND", 3), ("CLF", 4),
+                                      ("INR", 2), ("KZT", 2)])
+def test_iso_4217_exponents_in_manifest(tmp_path, code, exp):
+    other = "USD" if code != "USD" else "EUR"
+    ep = generate_episode(1, {"company": {"archetype": "importer", "base_currency": other, "timezone": "+05:30",
+                                          "foreign_currencies": [code]}}, tmp_path)
+    manifest = json.loads((ep / "public" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["currency_exponents"][code] == exp
+    assert certify_episode(ep)["valid"]
+
+
+# База KRW или CLP (без копеек): вымышленный курс 1-500 KZT за единицу делал валютный счёт копеечным
+# в пересчёте, и дубль с неверным курсом не вносился (свип на экзотических валютах)
+@pytest.mark.parametrize("seed,count,company", [
+    (170030, 1, {"archetype": "distributor", "base_currency": "KRW", "timezone": "-09:00",
+                 "foreign_currencies": ["ISK", "CLP", "AED", "INR"]}),
+    (170047, 2, {"archetype": "distributor", "base_currency": "KRW", "timezone": "-03:00",
+                 "foreign_currencies": ["AED", "VND", "ISK", "KWD"]}),
+    (170056, 2, {"archetype": "saas", "base_currency": "CLP", "timezone": "+14:00",
+                 "foreign_currencies": ["UGX", "KRW", "VND"]}),
+])
+def test_duplicate_wrong_fx_with_zero_decimal_base(tmp_path, seed, count, company):
+    planned = {"enabled": True, "count": [count, count]}
+    ep = generate_episode(seed, _cfg(company, interactions={"duplicate_invoice_wrong_fx": planned}), tmp_path)
+    gen = json.loads((ep / "private" / "generation.json").read_text(encoding="utf-8"))
+    assert gen["interactions_injected"]["duplicate_invoice_wrong_fx"] == count
+    assert certify_episode(ep)["valid"]
+
+
+# D02: база EUR, дешёвые CLP/ISK/VND - суммы частей разбитого платежа после пересчёта не сходились
+# с суммой счёта, и отвлекающий случай не вносился; теперь берётся другой платёж (seed 190038)
+def test_split_payment_tries_other_payments(tmp_path):
+    company = {"archetype": "importer", "base_currency": "EUR", "timezone": "-04:30",
+               "foreign_currencies": ["USD", "CLP", "ISK", "OMR", "VND"]}
+    cfg = _cfg(company)
+    cfg["clean"] = True
+    cfg["distractors"]["split_payment"] = ONE
+    ep = generate_episode(190038, cfg, tmp_path)
+    gen = json.loads((ep / "private" / "generation.json").read_text(encoding="utf-8"))
+    assert gen["distractors_injected"]["split_payment"] == 1
+    assert certify_episode(ep)["valid"]
+
+
+# saas c 4 валютными счетами: сценарий 1 и запас под него забирали все валютные счета, и fx_conversion
+# не вносился; резерв валютных счетов теперь учитывает и совмещённые сценарии (фазз, seed 61578)
+def test_fx_reserve_counts_interactions(tmp_path):
+    cfg = {"config_version": "fuzz-v1",
+           "company": {"archetype": "saas", "base_currency": "GBP", "timezone": "+06:00",
+                       "foreign_currencies": ["EUR", "KGS", "JPY", "RUB", "UZS"]},
+           "size": {"ledger_rows": [218, 1548], "documents": [42, 134]},
+           "errors": {"duplicate_invoice": {"enabled": False, "count": [0, 3]},
+                      "payment_allocation": {"enabled": True, "count": [1, 1]},
+                      "fx_conversion": {"enabled": True, "count": [1, 2]},
+                      "period_cutoff": {"enabled": False, "count": [3, 3]}},
+           "interactions": {"partial_fx_payment_at_cutoff": {"enabled": True, "count": [1, 2]},
+                            "duplicate_invoice_wrong_fx": {"enabled": False, "count": [1, 2]}},
+           "distractors": {"split_payment": {"enabled": False, "count": [0, 2]},
+                           "refund": {"enabled": True, "count": [0, 2]},
+                           "legit_recurring": {"enabled": True, "count": [1, 2]},
+                           "late_evening_local": {"enabled": False, "count": [1, 2]}},
+           "clean": False, "max_errors": 12}
+    ep = generate_episode(61578, cfg, tmp_path)
+    gen = json.loads((ep / "private" / "generation.json").read_text(encoding="utf-8"))
+    assert gen["errors_injected"]["fx_conversion"] == gen["errors_planned"]["fx_conversion"] == 2
+    assert certify_episode(ep)["valid"]

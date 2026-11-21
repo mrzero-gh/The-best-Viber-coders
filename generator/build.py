@@ -198,8 +198,10 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
                     # +1 оплата в запас: валютный платёж может занять отвлекающий случай
                     foreign_paid=iplanned["partial_fx_payment_at_cutoff"] + 1
                     if iplanned["partial_fx_payment_at_cutoff"] else 0,
-                    # fx_conversion нужен валютный документ (у saas или с одной дешёвой валютой их может не быть)
-                    foreign_docs=2 * planned["fx_conversion"],
+                    # fx_conversion нужен валютный документ (у saas или с одной дешёвой валютой их может не быть);
+                    # валютные счета занимают ещё сценарий 1 (+1 в запас) и дубль с неверным курсом
+                    foreign_docs=2 * planned["fx_conversion"] + 2 * n_dfx
+                    + (iplanned["partial_fx_payment_at_cutoff"] + 1 if iplanned["partial_fx_payment_at_cutoff"] else 0),
                     # payment_allocation нужен платёж, сумму которого восстановят по проводке (+1 в запас)
                     recoverable_paid=planned["payment_allocation"] + 1 if planned["payment_allocation"] else 0)
     dm = make_distractors(h, dist_rng, ids, dplanned)

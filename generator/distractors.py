@@ -86,20 +86,25 @@ class DistractorMaker(Injector):
         """Счёт закрыт двумя платежами; каждый разнесён полностью, сумма = сумме счёта."""
         ctx = self.h.ctx
         cands = self._single_payments()
-        if not cands:
-            return
-        pay = self.rng.choice(cands)
-        ref = pay["invoice_refs"][0]
-        inv = self._by_id()[ref["invoice_id"]]
-        total, day = ref["amount_minor"], ctx.local_date(inv["issued_at"])
-        full = ctx.convert(total, pay["currency"], day)
-        for _ in range(20):  # части подбираются так, чтобы 1200 по счёту закрылся без остатка
-            part = total * self.rng.randint(30, 70) // 100
-            if 0 < part < total and (ctx.convert(part, pay["currency"], day)
-                                     + ctx.convert(total - part, pay["currency"], day)) == full:
-                break
-        else:
-            return
+        while True:
+            if not cands:
+                return
+            pay = self.rng.choice(cands)
+            ref = pay["invoice_refs"][0]
+            inv = self._by_id()[ref["invoice_id"]]
+            total, day = ref["amount_minor"], ctx.local_date(inv["issued_at"])
+            full = ctx.convert(total, pay["currency"], day)
+            for _ in range(20):  # части подбираются так, чтобы 1200 по счёту закрылся без остатка
+                part = total * self.rng.randint(30, 70) // 100
+                if 0 < part < total and (ctx.convert(part, pay["currency"], day)
+                                         + ctx.convert(total - part, pay["currency"], day)) == full:
+                    break
+            else:
+                # округление дешёвой валюты к дорогой базе не сошлось: берём другой платёж
+                # (первый удачный выбор тратит rng как раньше)
+                cands = [c for c in cands if c is not pay]
+                continue
+            break
         pay["amount_minor"] = part
         pay["invoice_refs"] = [{"invoice_id": inv["invoice_id"], "amount_minor": part}]
         self._repost(pay)

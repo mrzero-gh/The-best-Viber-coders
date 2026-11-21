@@ -15,8 +15,17 @@ KZT_VALUE = {
     "KZT": Decimal("1"), "USD": Decimal("470"), "EUR": Decimal("510"), "CNY": Decimal("65"),
     "RUB": Decimal("5.2"), "JPY": Decimal("3.1"), "GBP": Decimal("600"), "TRY": Decimal("14"),
     "KGS": Decimal("5.4"), "UZS": Decimal("0.037"),
+    "KRW": Decimal("0.34"), "KWD": Decimal("1530"), "BHD": Decimal("1250"),
 }
-EXPONENTS = {"JPY": 0, "KRW": 0, "KWD": 3, "BHD": 3}  # остальные — 2
+# Разрядность по ISO 4217 для валют, у которых не 2 знака; остальные — 2.
+# Жюри скрывает валюты компании: код вне таблицы курсов получает вымышленный курс, но разрядность
+# минимальной единицы должна быть настоящей (VND и CLP без копеек, OMR и TND с тремя знаками).
+EXPONENTS = {
+    **{c: 0 for c in ("BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF",
+                      "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF")},
+    **{c: 3 for c in ("BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND")},
+    **{c: 4 for c in ("CLF", "UYW")},
+}
 FX_MARGIN_DAYS = 10
 
 MONTHS_RU = ("январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август",
@@ -170,7 +179,10 @@ def _build_fx(rng, ctx, currencies):
     last = ctx.period_end.date() + timedelta(days=FX_MARGIN_DAYS)
     value = {}
     for cur in [ctx.base] + currencies:
-        value[cur] = KZT_VALUE.get(cur) or Decimal(rng.randint(1, 500))
+        # валюта вне таблицы: вымышленная стоимость 1-500 KZT за сотую часть единицы, то есть с
+        # учётом разрядности (VND без копеек дешёвый, OMR с тремя знаками дорогой); для валют
+        # с двумя знаками - как раньше, тот же расход rng
+        value[cur] = KZT_VALUE.get(cur) or Decimal(rng.randint(1, 500)).scaleb(exponent(cur) - 2)
     # цены счетов считаются от той же стоимости, что и курсы (иначе для валют вне KZT_VALUE
     # суммы в базовой валюте расходились бы в разы)
     ctx.start_value = dict(value)
