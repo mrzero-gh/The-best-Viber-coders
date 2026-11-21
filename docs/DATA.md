@@ -126,6 +126,7 @@ date,source_currency,target_currency,rate
 | `clean_history_sha256` | sha256 чистой истории **до** внесения ошибок, но уже с отвлекающими случаями (`generator.build.history_digest`: канонический JSON таблиц ledger, invoices, payments, fx) |
 | `mutations[]` | одна запись на каждую ошибку, в том же порядке, что `truth.issues`; `issue_id` и `type` совпадают с `truth.json` |
 | `changes[]` | `{table, record_id, field, before, after}`: что именно изменилось |
+| `clean_history_diff` | полный обратимый журнал отличий открытых таблиц от чистой истории (ниже) |
 
 Отвлекающие случаи (`truth.distractors`) в `mutations` не попадают: это законные данные чистой истории.
 
@@ -146,9 +147,32 @@ date,source_currency,target_currency,rate
 
 **Сценарии взаимодействия** (`truth.issues[].scenario`) дают несколько записей в `mutations`, по одной на каждую ошибку сценария. Изменения одной записи могут затрагивать проводки, созданные предыдущей (например, `__deleted__` строки, которую создал дубликат).
 
+**Журнал `clean_history_diff`.** `mutations` объясняет каждую ошибку, но описательно: в нём есть служебные поля (`allocated_minor:<INV>`, `rate_used`), а у удалённых проводок записан только ключ документа. Для точного восстановления есть отдельный полный журнал: генератор сравнивает таблицы до и после внесения ошибок.
+
+```json
+"clean_history_diff": {
+  "ledger":   {"removed": [{"row_id": "L-…", "timestamp": "…", "account": "1200", "debit_minor": 125000,
+                            "credit_minor": 0, "currency": "KZT", "entity_id": "ENT-…",
+                            "invoice_id": "INV-…", "payment_id": null}],
+               "added": ["L-…"], "modified": []},
+  "invoices": {"removed": [], "added": ["INV-…"],
+               "modified": [{"id": "INV-…", "field": "issued_at", "before": "…", "after": "…"}]},
+  "payments": {"removed": [], "added": [], "modified": []},
+  "fx":       {"removed": [], "added": [], "modified": []}}
+```
+
+| Ключ | Значение |
+|---|---|
+| `removed` | строки чистой истории целиком, в формате открытых файлов; в открытых данных их нет |
+| `added` | ID строк, которых не было в чистой истории (у курса ID - `FX:<дата>:<валюта>:<база>`) |
+| `modified` | `{id, field, before, after}`: `after` равен текущему открытому значению |
+
+Чистая история = открытые таблицы, из которых убраны `added`, возвращены `removed`, а у `modified` поставлено `before`. Строки сортируются как в открытых файлах (время, затем ID; курсы - дата и валюты), sha256 канонического JSON четырёх таблиц равен `clean_history_sha256`. У чистой компании журнал пустой.
+
 **Как проверить независимо.**
 - `python -m generator.explain <папка эпизода> [ISS-…]` рассказывает историю каждой ошибки по `provenance.json`.
-- Из `__deleted__` содержимое удалённых строк не восстанавливается (хранится только ключ документа). Поэтому чистая история проверяется перегенерацией: тот же `seed` и `config` из `generation.json` дают тот же эпизод и тот же `clean_history_sha256`.
+- `python -m grader.clean_history <папка эпизода>` восстанавливает чистую историю по открытым данным и `clean_history_diff` и проверяет три вещи: sha256 совпадает с `clean_history_sha256`; в книге до внесения ошибок дебет равен кредиту и сходится каждый документ; журнал согласован с открытыми данными. Эту же проверку делает сертификат `grader.certificate` (пункт `clean_history_balance`).
+- Перегенерация тоже работает: тот же `seed` и `config` из `generation.json` дают тот же эпизод и тот же `clean_history_sha256`.
 - `record_id` у `__deleted__` в открытых данных нет. Остальные `record_id` в открытых данных есть. Исключение: `__created__`-строки дубликата в сценарии `duplicate_invoice_wrong_fx`, которые следующая запись удаляет как `__deleted__`.
 
 > Эпизоды в `episodes/` руками не править: среда сверяет sha256 и отклонит такой эпизод (`EPISODE_INVALID`). Нужно другое — перегенерировать.

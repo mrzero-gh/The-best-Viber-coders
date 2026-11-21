@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from common.jsonio import canonical_dumps
+from grader import clean_history
 from grader.evidence import PublicEvidence, read_public, require
 from grader.validation import validate_truth
 
@@ -146,13 +147,13 @@ def _distractor(data: PublicEvidence, item: dict) -> None:
         raise ValueError("unknown distractor kind")
 
 
-def certify(public: dict, truth: dict) -> dict:
+def certify(public: dict, truth: dict, provenance: dict | None = None) -> dict:
     """Проверяет все допустимые evidence_sets, не используя суммы truth в пересчёте."""
     validate_truth(truth, public["manifest"]["episode_id"])
     report = {"schema_version": "1.0", "episode_id": truth["episode_id"], "valid": False,
               "issues": [], "distractors": [], "public_errors": [],
-              "clean_history_balance": {"status": "not_checked",
-                                        "reason": "clean pre-mutation history is not in public records"}}
+              "clean_history_balance": (clean_history.check(public, provenance) if provenance is not None else
+                                        {"status": "not_checked", "reason": "provenance not provided"})}
     try:
         data = PublicEvidence(public)
     except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
@@ -186,7 +187,7 @@ def certify(public: dict, truth: dict) -> dict:
         except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
             result["error"] = str(exc)
         report["distractors"].append(result)
-    report["valid"] = (not report["public_errors"] and
+    report["valid"] = (not report["public_errors"] and report["clean_history_balance"]["status"] != "failed" and
                        all(item["valid"] for item in report["issues"] + report["distractors"]))
     report["summary"] = {"issues_confirmed": sum(item["valid"] for item in report["issues"]),
                          "issues_total": len(truth["issues"]),
@@ -196,11 +197,14 @@ def certify(public: dict, truth: dict) -> dict:
 
 
 def certify_episode(episode_dir: str | Path) -> dict:
-    """Читает только public/* и private/truth.json; не доверяет provenance."""
+    """Читает public/*, private/truth.json и private/provenance.json. Provenance не принимается на веру:
+    чистая история восстанавливается по открытым данным и сверяется с clean_history_sha256."""
     episode = Path(episode_dir)
     public = read_public(episode / "public")
     truth = json.loads((episode / "private" / "truth.json").read_text(encoding="utf-8"))
-    report = certify(public, truth)
+    prov_path = episode / "private" / "provenance.json"
+    provenance = json.loads(prov_path.read_text(encoding="utf-8")) if prov_path.exists() else None
+    report = certify(public, truth, provenance)
     with (episode / "private" / "certificate.json").open("w", encoding="utf-8", newline="\n") as stream:
         stream.write(canonical_dumps(report) + "\n")
     return report
