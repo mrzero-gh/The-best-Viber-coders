@@ -214,14 +214,30 @@ def test_time_limit(tmp):
     assert r.log()[0]["status"] == "time_limit"
 
 
-def test_time_limit_counts_from_reset_start(tmp):
-    # правила жюри: 60 с отсчитываются от начала reset. Генерация эпизода (десятые доли секунды)
-    # входит в лимит, поэтому при лимите 0.05 с уже первый шаг после reset завершает эпизод
-    r = Run(tmp, episode=None, time_limit_s=0.05)
-    with r.env:
-        r.reset(seed=42)
-        obs, reward, term, trunc, info = r.step(LIST)
-    assert obs["status"] == "time_limit" and trunc and not term
+def test_time_limit_counts_from_reset_start(tmp, monkeypatch):
+    # правила жюри: 60 с отсчитываются от начала reset, то есть загрузка эпизода входит в лимит.
+    # Сервер в процессе теста, часы подставные: загрузка «длится» 61 с, первый же шаг - time_limit
+    import argparse
+    import io
+    import env.server as srv
+
+    t = [0.0]
+    real_load = srv.load_public
+
+    def slow_load(path):
+        t[0] += 61.0
+        return real_load(path)
+
+    monkeypatch.setattr(srv, "load_public", slow_load)
+    args = argparse.Namespace(run_id="r1", runs_dir=str(Path(tmp) / "runs"), episode=str(EP_DIR),
+                              trust_episode=False, grader=GRADER, time_limit_s=None)
+    out = io.BytesIO()
+    server = srv.Server(args, out)
+    server.clock = lambda: t[0]
+    for msg in ({"cmd": "reset", "seed": 1, "config": {"mode": "train"}}, {"cmd": "step", "action": LIST}):
+        server.handle(json.dumps(msg).encode("utf-8") + b"\n")
+    last = json.loads(out.getvalue().decode("utf-8").splitlines()[-1])
+    assert last["observation"]["status"] == "time_limit" and last["truncated"] and not last["terminated"]
 
 
 def test_generation_failed(tmp):
