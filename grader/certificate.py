@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from common.jsonio import canonical_dumps
-from grader import clean_history
+from grader import clean_history, consistency
 from grader.evidence import PublicEvidence, read_public, require
 from grader.validation import validate_truth
 
@@ -43,7 +43,9 @@ def _prove(data: PublicEvidence, kind: str, affected: list[str], evidence: set[s
         declared = data.allocations(payment)
         require(invoice["invoice_id"] in declared, "invoice absent from payment references")
         book = data.book(payment)
-        # нет строки 1200 по счёту - по нему ничего не разнесено (нулевых проводок в книге нет);
+        # нет строки 1200 по счёту - по нему ничего не разнесено: по контракту каждое ненулевое
+        # распределение даёт строку Кт 1200 не меньше 1 minor базы (grader.consistency проверяет это
+        # на чистой истории, а у изменённого платежа - что сменилось только это распределение);
         # есть строка - разнесённая сумма восстанавливается обратным пересчётом, только однозначно
         posted = {identifier: 0 if ("1200", identifier) not in book else data.source_amount(
                   -book[("1200", identifier)], payment["currency"], data.invoices[identifier]["issued_at"])
@@ -156,7 +158,9 @@ def certify(public: dict, truth: dict, provenance: dict | None = None) -> dict:
     report = {"schema_version": "1.0", "episode_id": truth["episode_id"], "valid": False,
               "issues": [], "distractors": [], "public_errors": [],
               "clean_history_balance": (clean_history.check(public, provenance) if provenance is not None else
-                                        {"status": "not_checked", "reason": "provenance not provided"})}
+                                        {"status": "not_checked", "reason": "provenance not provided"}),
+              "clean_history_rules": (consistency.check(public, truth, provenance) if provenance is not None else
+                                      {"status": "not_checked", "reason": "provenance not provided", "errors": []})}
     try:
         data = PublicEvidence(public)
     except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
@@ -191,6 +195,7 @@ def certify(public: dict, truth: dict, provenance: dict | None = None) -> dict:
             result["error"] = str(exc)
         report["distractors"].append(result)
     report["valid"] = (not report["public_errors"] and report["clean_history_balance"]["status"] != "failed" and
+                       report["clean_history_rules"]["status"] != "failed" and
                        all(item["valid"] for item in report["issues"] + report["distractors"]))
     report["summary"] = {"issues_confirmed": sum(item["valid"] for item in report["issues"]),
                          "issues_total": len(truth["issues"]),

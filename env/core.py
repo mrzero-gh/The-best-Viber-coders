@@ -48,14 +48,16 @@ class AuditCore:
     """Состояние одного эпизода. Наружу отдаёт только глубокие копии данных."""
 
     def __init__(self, episode: Episode, truth: dict, mode: str = "train", grader=None,
-                 clock=time.monotonic, time_limit_s: float = TIME_LIMIT_S):
+                 clock=time.monotonic, time_limit_s: float = TIME_LIMIT_S, start: float | None = None):
         self.episode = episode
         self._truth = truth
         self.mode = mode
         self._grader = grader if grader is not None else _default_grader
         self._clock = clock
         self._time_limit_s = time_limit_s
-        self._start = clock()
+        # лимит считается от начала reset (правила жюри): сервер передаёт момент получения команды,
+        # поэтому загрузка и генерация эпизода входят в 60 секунд
+        self._start = clock() if start is None else start
         self.steps_used = 0
         self.finished = False
         self.grader_result = None
