@@ -11,7 +11,9 @@
   Ключи курсов `FX:<дата>:<валюта>:<база>` не меняются: это не суррогатные ID.
 
 `private/generation.json` намеренно не пересчитывается (жюри его тоже не обновляет), поэтому
-копию загружают с `--trust-episode` (так делает judge_adapter).
+копию загружают с `--trust-episode` (так делает judge_adapter). При смене ID пересчитывается
+только `provenance.clean_history_sha256`: ID в журнале чистой истории заменены, значит и хэш
+чистой истории другой; баланс и согласованность журнала `grader.clean_history` проверяет заново.
 """
 import argparse
 import csv
@@ -102,10 +104,29 @@ def transform_episode(src, dst, *, seed: int = 0, permute: bool = True, remap: b
         prefixes = REMAP_PREFIXES + (("EP",) if remap_episode_id else ())
         mapping = build_mapping(dst, rng, prefixes)
         _apply_mapping(dst, mapping, prefixes)
+        _rehash_clean_history(dst)
     if permute:
         for name in _TABLES:
             _permute_table(dst / "public" / name, rng)
     return mapping
+
+
+def _rehash_clean_history(ep: Path) -> None:
+    """После смены ID: хэш чистой истории, восстановленной уже с новыми ID."""
+    from common.jsonio import canonical_dumps
+    from grader import clean_history
+    from grader.evidence import read_public
+    path = ep / "private" / "provenance.json"
+    if not path.exists():
+        return
+    prov = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(prov.get("clean_history_diff"), dict) or not prov.get("clean_history_sha256"):
+        return
+    tables, errors = clean_history.reconstruct(read_public(ep / "public"), prov["clean_history_diff"])
+    if errors:  # журнал не сходится с копией: оставляем старый хэш, проверка честно упадёт
+        return
+    prov["clean_history_sha256"] = clean_history.digest(tables)
+    path.write_text(canonical_dumps(prov) + "\n", encoding="utf-8", newline="\n")
 
 
 def invert(mapping: dict) -> dict:

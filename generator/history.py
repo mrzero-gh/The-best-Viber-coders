@@ -227,7 +227,7 @@ def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
     return n_inv, n_pay, rng.randint(lo, hi)
 
 
-def _make_entities(content, ids, archetype, base, foreign):
+def _make_entities(content, ids, archetype, base, foreign, need_foreign=False, need_recoverable=None):
     share = FOREIGN_SHARE[archetype] if foreign else 0
     entities = []
     for _ in range(content.randint(6, 14)):
@@ -235,11 +235,42 @@ def _make_entities(content, ids, archetype, base, foreign):
         entities.append({"entity_id": ids.new("E"), "currency": cur})
     if all(e["currency"] != base for e in entities):
         entities[0]["currency"] = base  # хотя бы один контрагент в базовой валюте
+    if need_foreign and foreign and all(e["currency"] == base for e in entities):
+        # совмещённым сценариям нужен валютный контрагент (у saas их мало); rng тратится
+        # только здесь, поэтому эпизоды, где валютный контрагент и так есть, не меняются
+        entities[content.randrange(1, len(entities))]["currency"] = content.choice(foreign)
+    if need_recoverable and not any(e["currency"] in need_recoverable for e in entities):
+        # под partial_fx_payment_at_cutoff нужен контрагент в восстановимой валюте: им становится
+        # один из валютных (он есть после шага выше), контрагенты в базовой валюте не трогаются
+        idx = [i for i, e in enumerate(entities) if e["currency"] != base]
+        entities[content.choice(idx)]["currency"] = content.choice(need_recoverable)
     return entities
 
 
+def _recoverable_currency(ctx, cur) -> bool:
+    """1 minor валюты стоит не меньше 2 minor базовой: частичную оплату можно восстановить
+    из проводки (тот же критерий, что Injector._recoverable, с запасом на блуждание курса)."""
+    rate = ctx.rate(cur, ctx.period_start.date())
+    return rate * Decimal(10) ** (ctx.exps[ctx.base] - ctx.exps[cur]) >= 2
+
+
+def _reserve_foreign_paid(content, ctx, drafts, small, entities, need):
+    """Минимум need оплаченных счетов у валютных контрагентов (под partial_fx_payment_at_cutoff).
+    Меняет только оплаченные счета вне коротких; если их хватает, rng не трогает."""
+    good = [e for e in entities if e["currency"] != ctx.base and _recoverable_currency(ctx, e["currency"])]
+    if not need or not good:
+        return
+    have = sum(1 for d in drafts if d["paid"] and d["entity"] in good)
+    for i, d in enumerate(drafts):
+        if have >= need:
+            break
+        if d["paid"] and i not in small and d["entity"]["currency"] == ctx.base:
+            d["entity"] = content.choice(good)
+            have += 1
+
+
 def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count, base_small=0,
-                 foreign_small=0):
+                 foreign_small=0, foreign_paid=0):
     """Даты, контрагенты и число строк счетов. Первые n_pay будут оплачены — их даты
     не у самого конца периода. Короткие счета (1–2 строки) есть всегда, не только у дублей,
     чтобы краткость счёта не выдавала ошибку."""
@@ -259,6 +290,7 @@ def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count,
             drafts[i]["entity"] = content.choice(base_entities)
         elif k < base_small + foreign_small and foreign_entities:  # под дубль с неверным курсом
             drafts[i]["entity"] = content.choice(foreign_entities)
+    _reserve_foreign_paid(content, ctx, drafts, small, entities, foreign_paid)
     pay_rows = sum(2 if d["entity"]["currency"] == ctx.base else 3 for d in drafts if d["paid"])
     growable = [d for i, d in enumerate(drafts) if i not in small]
     extra_lines = max(0, target_rows - pay_rows - 2 * n_inv - sum(d["lines"] - 1 for d in drafts))
@@ -296,10 +328,11 @@ def _make_payment(content, ids, ctx, draft, inv):
 
 
 def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0, base_small=0,
-                foreign_small=0) -> History:
+                foreign_small=0, foreign_paid=0) -> History:
     """small_count — сколько счетов минимум оставить с 1–2 строками (кандидаты в дубли);
     base_small — сколько из них сделать в базовой валюте (под legit_recurring);
-    foreign_small — сколько в иностранной (под duplicate_invoice_wrong_fx)."""
+    foreign_small — сколько в иностранной (под duplicate_invoice_wrong_fx);
+    foreign_paid — сколько оплаченных валютных счетов нужно (под partial_fx_payment_at_cutoff)."""
     company = cfg["company"]
     tz = parse_tz(company["timezone"])
     base = company["base_currency"]
@@ -309,10 +342,13 @@ def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0
                   period_end=end, exps={c: exponent(c) for c in [base] + foreign})
     episode_id = ids.new("EP")
     fx_rows = _build_fx(content, ctx, foreign)
-    entities = _make_entities(content, ids, company["archetype"], base, foreign)
+    entities = _make_entities(content, ids, company["archetype"], base, foreign,
+                              need_foreign=bool(foreign_small or foreign_paid),
+                              need_recoverable=[c for c in foreign if _recoverable_currency(ctx, c)]
+                              if foreign_paid else None)
     n_inv, n_pay, target_rows = plan_sizes(content, cfg, reserve_rows, reserve_docs)
     drafts, small = _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count,
-                                 base_small, foreign_small)
+                                 base_small, foreign_small, foreign_paid)
 
     goods = GOODS[company["archetype"]]
     period_label = f"{MONTHS_RU[start.month - 1]} {start.year}"
