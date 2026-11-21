@@ -187,57 +187,49 @@ def run_jury_evaluation(grader_str: str = "grader.evaluate:evaluate", seeds_per_
     print(f"  * Эпизоды с ошибками: Oracle получил P=R=F1=1.000 на {perfect} из {len(oracle_err)}.\n")
 
     # -----------------------------------------------------------------
-    # ЧЕСТНЫЙ ДИНАМИЧЕСКИЙ РАСЧЁТ БАЛЛОВ ПО ФАКТИЧЕСКИМ РЕЗУЛЬТАТАМ
+    # САМОПРОВЕРКА: проходят ли ключевые свойства среды на этом прогоне.
+    # Это не оценка жюри и не баллы, а быстрый индикатор «ничего не сломалось».
     # -----------------------------------------------------------------
     print("\n=================================================================")
-    print("              РАСЧЁТ БАЛЛОВ ПО РЕЗУЛЬТАТАМ ТЕСТИРОВАНИЯ          ")
+    print("              САМОПРОВЕРКА ПО РЕЗУЛЬТАТАМ ПРОГОНА")
     print("=================================================================")
 
-    # 1. Данные и эталон (25): проверяется по разрешимости эталона оракулом
+    # 1. Разрешимость эталона: Oracle находит всё
     oracle_avg_f1 = sum(results["OraclePolicy"]["f1"]) / len(results["OraclePolicy"]["f1"])
-    pts_data = round(25 * oracle_avg_f1)
-    note_data = f"Oracle F1 = {oracle_avg_f1:.3f} (100% математическая разрешимость)" if pts_data == 25 else f"Oracle F1 снижен: {oracle_avg_f1:.3f}"
+    data_ok = oracle_avg_f1 == 1.0
+    note_data = f"Oracle F1 = {oracle_avg_f1:.3f}"
 
-    # 2. Контракт и изоляция (25): проверка соблюдения лимитов и контракта Gymnasium
-    contract_ok = all(s <= 100 for s in results["OraclePolicy"]["steps"] + results["SmartAuditor"]["steps"])
-    pts_contract = 25 if contract_ok else 0
-    note_contract = "Все шаги <= 100, контракт reset/step соблюдён без исключений" if contract_ok else "Нарушение лимита шагов"
+    # 2. Лимит шагов соблюдён (полный контракт и изоляцию проверяют тесты: scripts.check)
+    steps_ok = all(s <= 100 for s in results["OraclePolicy"]["steps"] + results["SmartAuditor"]["steps"])
+    note_steps = "шаги Oracle и SmartAuditor <= 100" if steps_ok else "превышен лимит шагов"
 
-    # 3. Надёжность награды (25): проверка отражения атаки FlagAll и защита от эксплойтов
+    # 3. Атака «пометить всё» не окупается
     flagall_avg_rew = sum(results["FlagAllPolicy"]["reward"]) / len(results["FlagAllPolicy"]["reward"])
-    attack_defended = flagall_avg_rew <= -0.99
-    pts_reward = 25 if attack_defended else 0
-    note_reward = f"Атака «пометить всё» отбита (Reward = {flagall_avg_rew:.3f} <= -1.0)" if attack_defended else f"Уязвимость награды: {flagall_avg_rew:.3f}"
+    reward_ok = flagall_avg_rew <= -0.99
+    note_reward = f"награда FlagAll = {flagall_avg_rew:.3f}"
 
-    # 4. Воспроизводимость (15): тот же seed -> те же файлы, тот же прогон -> тот же итог
-    pts_repro = 15 if repro_ok else 0
+    # 4. Воспроизводимость: тот же seed -> те же файлы, тот же прогон -> тот же итог
     note_repro = repro_note
 
-    # 5. Инженерия (10): скорость работы в рамках регламента (<60 сек на эпизод)
+    # 5. Время эпизода в пределах 60 с
     max_ep_time = max(max(data["time_s"]) for data in results.values())
-    pts_eng = 10 if max_ep_time < 60.0 else 5
-    note_eng = (f"Макс. время на эпизод {max_ep_time:.3f} с "
-                + ("< 60 с лимита регламента" if max_ep_time < 60.0 else ">= 60 с: лимит регламента превышен"))
+    time_ok = max_ep_time < 60.0
+    note_time = f"макс. время эпизода {max_ep_time:.3f} с (лимит 60 с)"
 
-    score_card = [
-        ("1. Данные и эталон", 25, pts_data, note_data),
-        ("2. Контракт и изоляция", 25, pts_contract, note_contract),
-        ("3. Надёжность награды", 25, pts_reward, note_reward),
-        ("4. Воспроизводимость", 15, pts_repro, note_repro),
-        ("5. Инженерия", 10, pts_eng, note_eng),
+    checks = [
+        ("Разрешимость эталона", data_ok, note_data),
+        ("Лимит шагов", steps_ok, note_steps),
+        ("Атака «пометить всё»", reward_ok, note_reward),
+        ("Воспроизводимость", repro_ok, note_repro),
+        ("Время эпизода", time_ok, note_time),
     ]
-
-    total_max = 0
-    total_score = 0
-    for crit, max_pts, pts, note in score_card:
-        total_max += max_pts
-        total_score += pts
-        print(f"{crit:<26} : {pts:>2}/{max_pts:<2} | {note}")
+    for name, ok, note in checks:
+        print(f"  {'OK  ' if ok else 'FAIL'} {name:<22} | {note}")
     print("=" * 65)
-    pct = (total_score / total_max) * 100
-    print(f"ИТОГОВЫЙ БАЛЛ ПО ПРОВЕРКЕ : {total_score:>2}/{total_max:<2} ({pct:.1f}% УСПЕШНОСТЬ)")
+    passed = sum(1 for _, ok, _ in checks if ok)
+    print(f"САМОПРОВЕРКА: {passed}/{len(checks)} пройдено. Полная проверка: python -m scripts.check")
     print("=================================================================\n")
-    return 0 if total_score == total_max else 1
+    return 0 if passed == len(checks) else 1
 
 
 def main():
