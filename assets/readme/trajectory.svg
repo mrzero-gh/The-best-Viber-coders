@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">Реплей агента: эпизод EP-0HJPAE81</title>
+  <desc id="desc">Эвристический аудитор из trajectories.jsonl проходит эпизод EP-0HJPAE81 за 24 шага. Шаги 1–8: list_records по счетам, платежам и курсам. Шаги 9–15: семь страниц главной книги по 50 строк. Шаги 16–23: get_document по восьми подозрительным документам. Шаг 24: submit с девятью выводами: два дубликата счёта, три ошибки разнесения платежа, две ошибки периода, две ошибки курса. Подтверждено 9 из 9, ложных выводов 0, четыре законные ловушки обойдены, награда +0.954 = 2·F1 − 1 − 0.002·23.</desc>
+
+  <rect width="1200" height="560" rx="22" fill="#F6F3EA"/>
+
+  <g id="heading" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fill="#14171A">
+    <text x="56" y="64" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" letter-spacing="1.5" fill="#6B6F73">РЕПЛЕЙ · EP-0HJPAE81 · ЭВРИСТИЧЕСКИЙ АУДИТОР</text>
+    <text x="54" y="114" font-size="40" font-weight="800" letter-spacing="-0.5">24 шага → 9 из 9 ошибок, награда +0.954</text>
+  </g>
+
+  <!-- 24 шага: клетка 40, шаг 45.5 -->
+  <g id="steps" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="16" text-anchor="middle">
+    <g fill="#FFFFFF" stroke="#B9B3A3" stroke-width="1.5">
+      <rect x="56" y="146" width="40" height="40" rx="6"/><rect x="101.5" y="146" width="40" height="40" rx="6"/>
+      <rect x="147" y="146" width="40" height="40" rx="6"/><rect x="192.5" y="146" width="40" height="40" rx="6"/>
+      <rect x="238" y="146" width="40" height="40" rx="6"/><rect x="283.5" y="146" width="40" height="40" rx="6"/>
+      <rect x="329" y="146" width="40" height="40" rx="6"/><rect x="374.5" y="146" width="40" height="40" rx="6"/>
+    </g>
+    <g fill="#E4DFD2" stroke="#B9B3A3" stroke-width="1.5">
+      <rect x="420" y="146" width="40" height="40" rx="6"/><rect x="465.5" y="146" width="40" height="40" rx="6"/>
+      <rect x="511" y="146" width="40" height="40" rx="6"/><rect x="556.5" y="146" width="40" height="40" rx="6"/>
+      <rect x="602" y="146" width="40" height="40" rx="6"/><rect x="647.5" y="146" width="40" height="40" rx="6"/>
+      <rect x="693" y="146" width="40" height="40" rx="6"/>
+    </g>
+    <g fill="#14171A">
+      <rect x="738.5" y="146" width="40" height="40" rx="6"/><rect x="784" y="146" width="40" height="40" rx="6"/>
+      <rect x="829.5" y="146" width="40" height="40" rx="6"/><rect x="875" y="146" width="40" height="40" rx="6"/>
+      <rect x="920.5" y="146" width="40" height="40" rx="6"/><rect x="966" y="146" width="40" height="40" rx="6"/>
+      <rect x="1011.5" y="146" width="40" height="40" rx="6"/><rect x="1057" y="146" width="40" height="40" rx="6"/>
+    </g>
+    <rect x="1102.5" y="146" width="40" height="40" rx="6" fill="#2F7D4F"/>
+    <g fill="#3E4246">
+      <text x="76" y="172">1</text><text x="121.5" y="172">2</text><text x="167" y="172">3</text><text x="212.5" y="172">4</text>
+      <text x="258" y="172">5</text><text x="303.5" y="172">6</text><text x="349" y="172">7</text><text x="394.5" y="172">8</text>
+      <text x="440" y="172">9</text><text x="485.5" y="172">10</text><text x="531" y="172">11</text><text x="576.5" y="172">12</text>
+      <text x="622" y="172">13</text><text x="667.5" y="172">14</text><text x="713" y="172">15</text>
+    </g>
+    <g fill="#FFFFFF">
+      <text x="758.5" y="172">16</text><text x="804" y="172">17</text><text x="849.5" y="172">18</text><text x="895" y="172">19</text>
+      <text x="940.5" y="172">20</text><text x="986" y="172">21</text><text x="1031.5" y="172">22</text><text x="1077" y="172">23</text>
+      <text x="1122.5" y="172">24</text>
+    </g>
+  </g>
+
+  <g id="phases" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <g stroke="#B9B3A3" stroke-width="1.5">
+      <line x1="56" y1="202" x2="414.5" y2="202"/>
+      <line x1="420" y1="202" x2="733" y2="202"/>
+      <line x1="738.5" y1="202" x2="1097" y2="202"/>
+    </g>
+    <line x1="1102.5" y1="202" x2="1142.5" y2="202" stroke="#2F7D4F" stroke-width="1.5"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#6B6F73">
+      <text x="56" y="230">list_records</text>
+      <text x="420" y="230">list_records</text>
+      <text x="738.5" y="230">get_document</text>
+      <text x="1142.5" y="230" text-anchor="end" fill="#2F7D4F" font-weight="700">submit</text>
+    </g>
+    <g font-size="20" fill="#14171A">
+      <text x="56" y="258">счета, платежи, курсы</text>
+      <text x="420" y="258">книга: 7 страниц по 50</text>
+      <text x="738.5" y="258">8 подозрительных документов</text>
+    </g>
+  </g>
+
+  <g id="findings" transform="translate(56 296)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <rect width="640" height="220" rx="12" fill="#FFFFFF" stroke="#D9D4C5" stroke-width="1.5"/>
+    <text x="24" y="42" font-size="22" font-weight="700" fill="#14171A">9 выводов с доказательствами</text>
+    <line x1="24" y1="60" x2="616" y2="60" stroke="#E4DFD2" stroke-width="1.5"/>
+    <g font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="20" fill="#14171A">
+      <text x="24" y="96">duplicate_invoice</text><text x="340" y="96">× 2</text><text x="616" y="96" text-anchor="end" fill="#6B6F73">JPY, RUB</text>
+      <text x="24" y="132">payment_allocation</text><text x="340" y="132">× 3</text><text x="616" y="132" text-anchor="end" fill="#6B6F73">JPY, CNY</text>
+      <text x="24" y="168">period_cutoff</text><text x="340" y="168">× 2</text><text x="616" y="168" text-anchor="end" fill="#6B6F73">CNY, JPY</text>
+      <text x="24" y="204">fx_conversion</text><text x="340" y="204">× 2</text><text x="616" y="204" text-anchor="end" fill="#6B6F73">KZT</text>
+    </g>
+  </g>
+
+  <g id="score" transform="translate(720 296)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <rect width="424" height="220" rx="12" fill="#FFFFFF" stroke="#2F7D4F" stroke-width="1.5"/>
+    <text x="28" y="44" font-size="22" font-weight="700" fill="#14171A">Подтверждено 9 из 9 · ложных 0</text>
+    <text x="28" y="76" font-size="20" fill="#5A5E62">законные ловушки: 4 из 4 обойдены</text>
+    <text x="24" y="156" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="64" font-weight="700" fill="#2F7D4F">+0.954</text>
+    <text x="28" y="196" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#6B6F73">2·F1 − 1 − 0.002·23 шага</text>
+  </g>
+</svg>
