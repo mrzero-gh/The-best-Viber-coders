@@ -19,6 +19,20 @@ def plan_distractors(cfg, rng) -> dict:
     return counts
 
 
+def cap_distractors(counts, min_docs, n_errors) -> dict:
+    """Мало документов: заказанные ошибки важнее отвлекающих случаев. Бюджет от нижней границы
+    size.documents: ошибка занимает около 1,5 документа, отвлекающий случай - около 2 (замер:
+    12 ошибок на 20-30 документах без ограничения теряли до трети ошибок). Лишние случаи
+    снимаются по одному с самого частого вида. При настройках по умолчанию и в эпизодах
+    репозитория (от 30 документов, до 10 ошибок) ограничение не срабатывает."""
+    budget = max(0, (min_docs - 3 * n_errors // 2) // 2)
+    counts = dict(counts)
+    while sum(counts.values()) > budget:
+        kind = max(DISTRACTORS, key=lambda k: counts[k])
+        counts[kind] -= 1
+    return counts
+
+
 class DistractorMaker(Injector):
     """Пользуется помощниками Injector (_free, _linked, _repost) и общим множеством used."""
 

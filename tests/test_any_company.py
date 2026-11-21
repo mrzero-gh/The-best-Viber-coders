@@ -75,3 +75,22 @@ def test_duplicate_wrong_fx_with_cheap_currency(tmp_path):
     gen = json.loads((ep / "private" / "generation.json").read_text(encoding="utf-8"))
     assert gen["interactions_injected"]["duplicate_invoice_wrong_fx"] == 2
     assert certify_episode(ep)["valid"]
+
+
+# Кейс: 20-200 документов и 0-12 ошибок. В малом эпизоде отвлекающие случаи занимали документы
+# раньше ошибок, и 12 ошибок на 20-30 документах теряли до трети; теперь ошибки важнее
+def test_small_episode_prefers_errors_over_distractors(tmp_path):
+    from generator.distractors import cap_distractors
+    full = {"split_payment": 2, "refund": 2, "legit_recurring": 2, "late_evening_local": 2}
+    assert cap_distractors(full, 40, 8) == full  # настройки по умолчанию не урезаются
+    assert sum(cap_distractors(full, 20, 12).values()) == 1
+    lost = 0
+    for seed in range(6):
+        cfg = {"size": {"ledger_rows": [200, 2000], "documents": [20, 30]},
+               "errors": {t: {"enabled": True, "count": [3, 3]} for t in
+                          ("duplicate_invoice", "payment_allocation", "fx_conversion", "period_cutoff")}}
+        ep = generate_episode(seed, cfg, tmp_path / str(seed))
+        gen = json.loads((ep / "private" / "generation.json").read_text(encoding="utf-8"))
+        lost += sum(gen["errors_planned"].values()) - sum(gen["errors_injected"].values())
+        assert sum(gen["distractors_planned"].values()) <= 1
+    assert lost <= 1
