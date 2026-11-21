@@ -94,3 +94,20 @@ def test_small_episode_prefers_errors_over_distractors(tmp_path):
         lost += sum(gen["errors_planned"].values()) - sum(gen["errors_injected"].values())
         assert sum(gen["distractors_planned"].values()) <= 1
     assert lost <= 1
+
+
+# База KWD, валюта UZS: оплаты в базовой валюте заняты отвлекающими случаями и period_cutoff, остальные
+# платежи в дешёвой UZS. payment_allocation вносится полным пропуском (фазз, seed 583444)
+def test_payment_allocation_missing_fallback_in_cheap_currency(tmp_path):
+    cfg = {"company": {"archetype": "importer", "base_currency": "KWD", "timezone": "-04:30",
+                       "foreign_currencies": ["UZS"]},
+           "size": {"ledger_rows": [1379, 1899], "documents": [27, 69]},
+           "errors": {"duplicate_invoice": OFF, "fx_conversion": OFF,
+                      "payment_allocation": ONE, "period_cutoff": {"enabled": True, "count": [3, 3]}},
+           "distractors": {"split_payment": {"enabled": True, "count": [2, 2]},
+                           "refund": {"enabled": True, "count": [2, 2]},
+                           "legit_recurring": ONE, "late_evening_local": ONE}}
+    ep = generate_episode(583444, cfg, tmp_path)
+    truth = _check(ep, "errors_planned", "payment_allocation")
+    alloc = [i for i in truth["issues"] if i["type"] == "payment_allocation"]
+    assert len(alloc) == 1 and alloc[0]["currency"] == "UZS"
