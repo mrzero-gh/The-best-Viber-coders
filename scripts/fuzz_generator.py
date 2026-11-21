@@ -140,6 +140,9 @@ def check_one(case: tuple) -> dict:
                                             ensure_ascii=False)[:300])
         if cert["clean_history_balance"]["status"] != "ok":
             bad("чистая история: " + json.dumps(cert["clean_history_balance"], ensure_ascii=False)[:300])
+        if cert["clean_history_rules"]["status"] != "ok":
+            bad("правила учёта и полнота эталона: "
+                + json.dumps(cert["clean_history_rules"]["errors"][:3], ensure_ascii=False)[:300])
         # oracle
         fin = _oracle(src)
         s = ja.score_episode(str(src), fin, 0)

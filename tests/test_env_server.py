@@ -214,6 +214,16 @@ def test_time_limit(tmp):
     assert r.log()[0]["status"] == "time_limit"
 
 
+def test_time_limit_counts_from_reset_start(tmp):
+    # правила жюри: 60 с отсчитываются от начала reset. Генерация эпизода (десятые доли секунды)
+    # входит в лимит, поэтому при лимите 0.05 с уже первый шаг после reset завершает эпизод
+    r = Run(tmp, episode=None, time_limit_s=0.05)
+    with r.env:
+        r.reset(seed=42)
+        obs, reward, term, trunc, info = r.step(LIST)
+    assert obs["status"] == "time_limit" and trunc and not term
+
+
 def test_generation_failed(tmp):
     # Конфиг, который генератор отклоняет (max_errors > 12): работает и с заглушкой, и с настоящим генератором
     bad = {"max_errors": 999}

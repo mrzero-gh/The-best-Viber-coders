@@ -67,6 +67,7 @@ class Server:
 
     # ---------- эпизод ----------
     def _new_episode(self, seed, config):
+        started = time.monotonic()  # начало reset: от него идёт лимит времени эпизода
         mode = config["mode"]
         try:
             if self.args.episode:
@@ -105,7 +106,7 @@ class Server:
         kw = {}
         if self.args.time_limit_s is not None:
             kw["time_limit_s"] = self.args.time_limit_s
-        self.core = AuditCore(episode, truth, mode=mode, grader=self.grader, **kw)
+        self.core = AuditCore(episode, truth, mode=mode, grader=self.grader, start=started, **kw)
         self.mode = mode
         self.episode_sha256 = fingerprint
         self.seed = None if self.args.episode else seed
