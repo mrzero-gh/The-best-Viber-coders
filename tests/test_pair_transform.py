@@ -49,7 +49,8 @@ def _lines(path: Path):
 
 def _cert_ok(ep: Path) -> bool:
     truth = json.loads((ep / "private" / "truth.json").read_text(encoding="utf-8"))
-    return certify(read_public(ep / "public"), truth)["valid"]
+    prov = json.loads((ep / "private" / "provenance.json").read_text(encoding="utf-8"))
+    return certify(read_public(ep / "public"), truth, prov)["valid"]
 
 
 def test_source_untouched_and_ids_fully_remapped(base):

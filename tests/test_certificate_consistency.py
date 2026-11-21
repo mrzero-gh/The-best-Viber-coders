@@ -173,3 +173,139 @@ def test_cheap_currency_full_skip_is_unambiguous(tmp_path, seed):
     assert not [r for r in public["ledger"] if r["payment_id"] == payment_id and r["account"] == "1200"
                 and r["invoice_id"] == invoice_id]
     assert issue["expected_amount_minor"] == payment["invoice_refs"][0]["amount_minor"]
+
+
+# ---------- ревью C 22.11: лазейки сертификата ----------
+
+def _tables(ep):
+    """Открытые таблицы и восстановленная чистая история (для проверки правил без пересчёта журнала)."""
+    public, truth, prov = _load(ep)
+    tables, _ = clean_history.reconstruct(public, prov["clean_history_diff"])
+    clean = {"manifest": public["manifest"], "policy": public["policy"], **tables}
+    return public, clean, truth
+
+
+def _change_errors(public, clean, truth) -> str:
+    from grader import consistency
+    from grader.evidence import PublicEvidence
+    errors = []
+    consistency._check_changes(PublicEvidence(public), PublicEvidence(clean), truth, errors)
+    return " | ".join(errors)
+
+
+def test_fx_issue_cannot_hide_account_substitution(tmp_path):
+    # у счёта с заявленной ошибкой курса выручка разнесена на другой счёт учёта
+    ep = _copy(tmp_path)
+    public, truth, prov = _load(ep)
+    row = next(r for r in public["ledger"] if r["row_id"] == "L-1H8HN6B9")
+    assert row["invoice_id"] == "INV-MCB947RJ" and row["account"] == "4000"
+    row["account"] = "7900"
+    _save(ep, public)
+    report = certify_episode(ep)
+    assert all(item["valid"] for item in report["issues"])  # строки-доказательства курса не тронуты
+    assert not report["valid"]
+    assert "INV-MCB947RJ: FX error changes more than the conversion rate" in _rules_errors(report)
+
+
+def test_fx_issue_cannot_hide_allocation_change(tmp_path):
+    # у платежа с заявленной ошибкой курса ещё и уменьшено распределение по счёту
+    ep = _copy(tmp_path)
+    public, truth, prov = _load(ep)
+    rows = {r["row_id"]: r for r in public["ledger"] if r["payment_id"] == "PAY-SGXRNSKP"}
+    assert rows["L-R4STX316"]["account"] == "1200" and rows["L-B8VY3SKB"]["account"] == "7900"
+    rows["L-R4STX316"]["credit_minor"] -= 1000
+    rows["L-B8VY3SKB"]["debit_minor"] -= 1000
+    _save(ep, public)
+    report = certify_episode(ep)
+    assert all(item["valid"] for item in report["issues"])
+    assert not report["valid"]
+    assert "PAY-SGXRNSKP: FX error changes more than the conversion rate" in _rules_errors(report)
+
+
+def test_period_cutoff_with_old_postings_is_undeclared_fx(tmp_path):
+    # дата счёта перенесена, а проводки остались прежними (по курсу старой даты): раньше проверка
+    # правил пропускалась, потому что проводки совпадают с чистыми
+    public, clean, truth = _tables(_copy(tmp_path))
+    old = [r for r in clean["ledger"] if r["invoice_id"] == "INV-D333VQYB" and r["payment_id"] is None]
+    public["ledger"] = [r for r in public["ledger"]
+                        if not (r["invoice_id"] == "INV-D333VQYB" and r["payment_id"] is None)] + old
+    errors = _change_errors(public, clean, truth)
+    assert "INV-D333VQYB: postings do not follow policy for the document date" in errors
+
+
+def test_duplicate_created_by_date_shift(tmp_path):
+    # перенос даты сблизил счёт с таким же счётом другой даты: возник незаявленный дубль
+    from grader.evidence import PublicEvidence
+    public, clean, truth = _tables(_copy(tmp_path))
+    shifted = next(i for i in public["invoices"] if i["invoice_id"] == "INV-D333VQYB")
+    twin = dict(shifted, doc_id="DOC-TESTTWIN", invoice_id="INV-TESTTWIN",
+                issued_at=shifted["issued_at"].replace("2026-08-31", "2026-08-29"))
+    assert twin["issued_at"] != shifted["issued_at"]
+    value = PublicEvidence(public).convert(twin["total_minor"], twin["currency"], twin["issued_at"])
+    base = next(r for r in clean["ledger"] if r["invoice_id"] == "INV-D333VQYB" and r["account"] == "1200")
+    rows = [dict(base, row_id="L-TESTTW01", invoice_id="INV-TESTTWIN", timestamp=twin["issued_at"],
+                 account="1200", debit_minor=value, credit_minor=0),
+            dict(base, row_id="L-TESTTW02", invoice_id="INV-TESTTWIN", timestamp=twin["issued_at"],
+                 account="4000", debit_minor=0, credit_minor=value)]
+    for tables in (public, clean):
+        tables["invoices"] = tables["invoices"] + [twin]
+        tables["ledger"] = tables["ledger"] + rows
+    errors = _change_errors(public, clean, truth)
+    assert ("INV-TESTTWIN: undeclared duplicate of INV-D333VQYB" in errors
+            or "INV-D333VQYB: undeclared duplicate of INV-TESTTWIN" in errors)
+
+
+def test_multi_invoice_allocation_recovered_jointly():
+    # платёж на два счёта: по отдельности строки 1200 неоднозначны (12 = 0.4 x 29..31,
+    # 16 = 0.4 x 39..41), но остаток 2900 фиксирует сумму распределений 72 и делает их однозначными
+    from decimal import Decimal
+    from grader.evidence import PublicEvidence
+
+    class Rates(PublicEvidence):
+        def __init__(self):  # только то, что нужно пересчёту распределений
+            self.invoices = {"INV-A": {"issued_at": "inv"}, "INV-B": {"issued_at": "inv"}}
+
+        def factor(self, currency, timestamp):
+            return Decimal("0.4") if timestamp == "inv" else Decimal(1)
+
+    data = Rates()
+    payment = {"payment_id": "PAY-X", "currency": "AAA", "timestamp": "pay", "amount_minor": 74,
+               "invoice_refs": [{"invoice_id": "INV-A", "amount_minor": 32},
+                                {"invoice_id": "INV-B", "amount_minor": 42}]}
+    book = {("1010", None): 74, ("1200", "INV-A"): -12, ("1200", "INV-B"): -16, ("2900", None): -2,
+            ("7900", None): -44}
+    with pytest.raises(ValueError):
+        data.source_amount(12, "AAA", "inv")  # прежняя проверка по одной строке отклоняла доказательство
+    recovered = data.allocation_ranges(payment, book)
+    assert recovered["ranges"] == {"INV-A": (31, 31), "INV-B": (41, 41)}
+    assert data.payment_book(payment, recovered["assignment"]) == book
+
+
+def test_provenance_of_other_episode_or_other_issues(tmp_path):
+    from grader import consistency
+    public, truth, prov = _load(_copy(tmp_path))
+    assert consistency.check(public, truth, prov)["status"] == "ok"
+    alien = dict(prov, episode_id="EP-OTHER001")
+    assert "provenance episode_id differs from manifest" in consistency.check(public, truth, alien)["errors"]
+    first = prov["mutations"][0]
+    dropped = dict(prov, mutations=prov["mutations"][1:])
+    assert f"{first['issue_id']}: no provenance mutation" in consistency.check(public, truth, dropped)["errors"]
+    other = "fx_conversion" if first["type"] != "fx_conversion" else "period_cutoff"
+    retyped = dict(prov, mutations=[dict(first, type=other)] + prov["mutations"][1:])
+    assert (f"{first['issue_id']}: provenance mutation type differs from truth"
+            in consistency.check(public, truth, retyped)["errors"])
+
+
+def test_empty_journal_is_not_certified(tmp_path):
+    # пустой журнал с согласованным хэшем: «чистая» история равна изменённой, ошибки эталона ничем не подкреплены
+    ep = _copy(tmp_path)
+    public, truth, prov = _load(ep)
+    diff = prov["clean_history_diff"]
+    prov["clean_history_diff"] = {table: {key: [] for key in part} for table, part in diff.items()}
+    tables, _ = clean_history.reconstruct(public, prov["clean_history_diff"])
+    prov["clean_history_sha256"] = clean_history.digest(tables)
+    (ep / "private" / "provenance.json").write_text(canonical_dumps(prov) + "\n", encoding="utf-8", newline="\n")
+    report = certify_episode(ep)
+    assert report["clean_history_balance"]["status"] == "ok"
+    assert not report["valid"]
+    assert "declared issue has no change in public data" in _rules_errors(report)

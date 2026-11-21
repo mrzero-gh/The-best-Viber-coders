@@ -46,12 +46,14 @@ def _prove(data: PublicEvidence, kind: str, affected: list[str], evidence: set[s
         # нет строки 1200 по счёту - по нему ничего не разнесено: по контракту каждое ненулевое
         # распределение даёт строку Кт 1200 не меньше 1 minor базы (grader.consistency проверяет это
         # на чистой истории, а у изменённого платежа - что сменилось только это распределение);
-        # есть строка - разнесённая сумма восстанавливается обратным пересчётом, только однозначно
-        posted = {identifier: 0 if ("1200", identifier) not in book else data.source_amount(
-                  -book[("1200", identifier)], payment["currency"], data.invoices[identifier]["issued_at"])
-                  for identifier in declared}
-        require(data.payment_book(payment, posted) == book, "unallocated remainder or FX postings are inconsistent")
-        amount = declared[invoice["invoice_id"]] - posted[invoice["invoice_id"]]
+        # есть строка - разнесённая сумма восстанавливается обратным пересчётом совместно по всем
+        # строкам платежа (1200 по каждому счёту и остаток 2900) и должна быть однозначной
+        recovered = data.allocation_ranges(payment, book)
+        low, high = recovered["ranges"][invoice["invoice_id"]]
+        require(low == high, "allocation cannot be uniquely recovered after rounding")
+        require(data.payment_book(payment, recovered["assignment"]) == book,
+                "unallocated remainder or FX postings are inconsistent")
+        amount = declared[invoice["invoice_id"]] - low
         require(amount > 0, "no missing payment allocation")
         return amount, payment["currency"]
     require(len(docs) == 1 and "doc_id" in docs[0], "issue needs one document ID")
@@ -152,8 +154,12 @@ def _distractor(data: PublicEvidence, item: dict) -> None:
         raise ValueError("unknown distractor kind")
 
 
-def certify(public: dict, truth: dict, provenance: dict | None = None) -> dict:
-    """Проверяет все допустимые evidence_sets, не используя суммы truth в пересчёте."""
+def certify(public: dict, truth: dict, provenance: dict | None = None, require_history: bool = True) -> dict:
+    """Проверяет все допустимые evidence_sets, не используя суммы truth в пересчёте.
+
+    По умолчанию valid требует доказанной чистой истории (хэш, баланс, правила учёта, провенанс):
+    без provenance или без журнала эпизод не сертифицирован. require_history=False - только для
+    ручных мини-эпизодов в тестах, где журнала нет; тогда не допускается лишь status "failed"."""
     validate_truth(truth, public["manifest"]["episode_id"])
     report = {"schema_version": "1.0", "episode_id": truth["episode_id"], "valid": False,
               "issues": [], "distractors": [], "public_errors": [],
@@ -194,8 +200,9 @@ def certify(public: dict, truth: dict, provenance: dict | None = None) -> dict:
         except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
             result["error"] = str(exc)
         report["distractors"].append(result)
-    report["valid"] = (not report["public_errors"] and report["clean_history_balance"]["status"] != "failed" and
-                       report["clean_history_rules"]["status"] != "failed" and
+    history = (report["clean_history_balance"]["status"], report["clean_history_rules"]["status"])
+    history_ok = all(status == "ok" for status in history) if require_history else "failed" not in history
+    report["valid"] = (not report["public_errors"] and history_ok and
                        all(item["valid"] for item in report["issues"] + report["distractors"]))
     report["summary"] = {"issues_confirmed": sum(item["valid"] for item in report["issues"]),
                          "issues_total": len(truth["issues"]),
@@ -204,7 +211,7 @@ def certify(public: dict, truth: dict, provenance: dict | None = None) -> dict:
     return report
 
 
-def certify_episode(episode_dir: str | Path) -> dict:
+def certify_episode(episode_dir: str | Path, require_history: bool = True) -> dict:
     """Читает public/*, private/truth.json и private/provenance.json. Provenance не принимается на веру:
     чистая история восстанавливается по открытым данным и сверяется с clean_history_sha256."""
     episode = Path(episode_dir)
@@ -212,7 +219,7 @@ def certify_episode(episode_dir: str | Path) -> dict:
     truth = json.loads((episode / "private" / "truth.json").read_text(encoding="utf-8"))
     prov_path = episode / "private" / "provenance.json"
     provenance = json.loads(prov_path.read_text(encoding="utf-8")) if prov_path.exists() else None
-    report = certify(public, truth, provenance)
+    report = certify(public, truth, provenance, require_history)
     with (episode / "private" / "certificate.json").open("w", encoding="utf-8", newline="\n") as stream:
         stream.write(canonical_dumps(report) + "\n")
     return report
@@ -221,9 +228,11 @@ def certify_episode(episode_dir: str | Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("episode", type=Path)
+    parser.add_argument("--no-history", action="store_true",
+                        help="ручной эпизод без provenance: не требовать доказательства чистой истории")
     args = parser.parse_args()
     try:
-        report = certify_episode(args.episode)
+        report = certify_episode(args.episode, require_history=not args.no_history)
     except (OSError, ValueError, KeyError, TypeError, ArithmeticError) as exc:
         parser.exit(2, f"Certificate input error: {exc}\n")
     print(canonical_dumps(report))

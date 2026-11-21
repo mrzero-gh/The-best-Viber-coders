@@ -138,7 +138,7 @@ def distractor_case(kind):
 def test_combined_scenarios_recompute_both_errors(factory):
     public, truth = factory()
     before = deepcopy((public, truth))
-    report = certify(public, truth)
+    report = certify(public, truth, require_history=False)
     assert report["valid"], report
     assert report["summary"]["issues_confirmed"] == 2
     assert report["ledger_balance_minor"] == 0
@@ -149,11 +149,11 @@ def test_combined_scenarios_recompute_both_errors(factory):
 @pytest.mark.parametrize("kind", ["split_payment", "refund", "legit_recurring", "late_evening_local"])
 def test_legal_distractors_and_tampered_books(kind):
     public, truth = distractor_case(kind)
-    assert certify(public, truth)["valid"]
+    assert certify(public, truth, require_history=False)["valid"]
     # Сохраняем баланс всей книги, но искажаем проводки отвлекающего документа.
     public["ledger"][-1]["credit_minor"] += 1
     public["ledger"][-2]["debit_minor"] += 1
-    report = certify(public, truth)
+    report = certify(public, truth, require_history=False)
     assert report["valid"] is False
 
 
@@ -163,16 +163,16 @@ def test_certificate_cannot_trust_private_amount_or_forged_alternative(factory):
     for index in range(2):
         wrong = deepcopy(truth)
         wrong["issues"][index]["expected_amount_minor"] += 1
-        assert certify(public, wrong)["issues"][index]["valid"] is False
+        assert certify(public, wrong, require_history=False)["issues"][index]["valid"] is False
         wrong = deepcopy(truth)
         wrong["issues"][index]["evidence_sets"].append(["DOC-99999999"])
-        assert certify(public, wrong)["valid"] is False
+        assert certify(public, wrong, require_history=False)["valid"] is False
 
 
 def test_certificate_requires_all_payment_rows():
     public, truth = combined_payment()
     truth["issues"][0]["evidence_sets"][0].pop()
-    report = certify(public, truth)
+    report = certify(public, truth, require_history=False)
     assert report["issues"][0]["valid"] is False
 
 
@@ -183,7 +183,7 @@ def test_wholly_unallocated_payment_is_provable():
     rows = post(public, pay, [("1010", 2500), ("2900", -2500)], timestamp="2026-09-30T23:59:59+05:00")
     truth["issues"] = [declared("payment_allocation", [public["invoices"][0]["invoice_id"], pay["payment_id"]],
                                 1000, [pay["doc_id"], *(row["row_id"] for row in rows)], "USD")]
-    assert certify(public, truth)["valid"]
+    assert certify(public, truth, require_history=False)["valid"]
 
 
 def test_payment_fx_conversion_uses_cash_and_document_date():
@@ -196,9 +196,9 @@ def test_payment_fx_conversion_uses_cash_and_document_date():
     rows = post(public, pay, [("1010", 2600), ("1200", -2000), ("7900", -600)])
     truth = truth_for(declared("fx_conversion", [pay["payment_id"]], 100,
                               [pay["doc_id"], rows[0]["row_id"], fx]))
-    assert certify(public, truth)["valid"]
+    assert certify(public, truth, require_history=False)["valid"]
     truth["issues"][0]["evidence_sets"][0][-1] = "FX:2026-09-15:USD:KZT"
-    assert certify(public, truth)["valid"] is False
+    assert certify(public, truth, require_history=False)["valid"] is False
 
 
 @pytest.mark.parametrize("defect", ["not_duplicate", "missing_posting", "doc_alias", "unrelated_row", "correct_fx"])
@@ -215,16 +215,16 @@ def test_unproved_issue_cannot_receive_a_certificate(defect):
     else:
         public["ledger"][2]["debit_minor"] = 2500
         public["ledger"][3]["credit_minor"] = 2500
-    assert certify(public, truth)["valid"] is False
+    assert certify(public, truth, require_history=False)["valid"] is False
 
 
 def test_public_policy_and_duplicate_ids_are_checked():
     public, truth = combined_duplicate()
     public["policy"]["rounding"]["mode"] = "ROUND_HALF_UP"
-    assert certify(public, truth)["public_errors"]
+    assert certify(public, truth, require_history=False)["public_errors"]
     public, truth = combined_duplicate()
     public["invoices"].append(deepcopy(public["invoices"][0]))
-    assert certify(public, truth)["public_errors"]
+    assert certify(public, truth, require_history=False)["public_errors"]
 
 
 @pytest.mark.parametrize("rate_value,amount,expected", [("1.005", 1, 100), ("1.015", 1, 102),
@@ -260,12 +260,12 @@ def test_local_period_boundaries(timestamp, valid):
     public, truth = combined_payment()
     public["payments"][0]["timestamp"] = timestamp
     truth["issues"] = [truth["issues"][1]]
-    assert certify(public, truth)["valid"] is valid
+    assert certify(public, truth, require_history=False)["valid"] is valid
 
 
 def test_permutation_timezone_and_ids_preserve_certificate():
     public, truth = combined_payment()
-    before = certify(public, truth)
+    before = certify(public, truth, require_history=False)
     for name in ("invoices", "payments", "ledger", "fx"):
         public[name].reverse()
         for row in public[name]:
@@ -273,7 +273,7 @@ def test_permutation_timezone_and_ids_preserve_certificate():
                 if field in row:
                     row[field] = datetime.fromisoformat(row[field]).astimezone(timezone.utc).isoformat()
     truth["issues"].reverse()
-    assert certify(public, truth) == before
+    assert certify(public, truth, require_history=False) == before
     replacements = {}
     for row in [*public["invoices"], *public["payments"], *public["ledger"]]:
         for key in ("invoice_id", "payment_id", "doc_id", "row_id"):
@@ -289,7 +289,7 @@ def test_permutation_timezone_and_ids_preserve_certificate():
             return [rename(item) for item in value]
         return replacements.get(value, value) if isinstance(value, str) else value
 
-    assert certify(rename(public), rename(truth)) == rename(before)
+    assert certify(rename(public), rename(truth), require_history=False) == rename(before)
 
 
 def write_episode(path, public, truth):
@@ -312,7 +312,8 @@ def test_episode_cli_writes_only_private_certificate_and_returns_failure(tmp_pat
     public, truth = combined_payment()
     write_episode(tmp_path, public, truth)
     before = {path.name: path.read_bytes() for path in (tmp_path / "public").iterdir()}
-    report = certify_episode(tmp_path)
+    assert not certify_episode(tmp_path)["valid"]  # без provenance история не доказана
+    report = certify_episode(tmp_path, require_history=False)
     assert report["valid"]
     certificate_path = tmp_path / "private" / "certificate.json"
     assert b"\r" not in certificate_path.read_bytes()
@@ -322,7 +323,7 @@ def test_episode_cli_writes_only_private_certificate_and_returns_failure(tmp_pat
         if not valid:
             truth["issues"][0]["expected_amount_minor"] += 1
             (tmp_path / "private" / "truth.json").write_text(json.dumps(truth), encoding="utf-8")
-        completed = subprocess.run([sys.executable, "-m", "grader.certificate", str(tmp_path)],
+        completed = subprocess.run([sys.executable, "-m", "grader.certificate", "--no-history", str(tmp_path)],
                                    capture_output=True, text=True, check=False)
         assert completed.returncode == (0 if valid else 1), completed.stderr
         assert json.loads(completed.stdout)["valid"] is valid
@@ -331,9 +332,9 @@ def test_episode_cli_writes_only_private_certificate_and_returns_failure(tmp_pat
 def test_clean_ledger_balance_is_checked_without_claiming_pre_mutation_balance():
     public, truth = distractor_case("split_payment")
     truth["distractors"] = []
-    assert certify(public, truth)["valid"]
+    assert certify(public, truth, require_history=False)["valid"]
     public["ledger"][0]["debit_minor"] += 1
-    report = certify(public, truth)
+    report = certify(public, truth, require_history=False)
     assert report["valid"] is False
     assert report["ledger_balance_minor"] == 1
     assert report["unbalanced_documents"] == [public["invoices"][0]["doc_id"]]
