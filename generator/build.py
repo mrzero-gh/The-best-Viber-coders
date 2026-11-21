@@ -194,7 +194,11 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
                     base_small=dplanned["legit_recurring"], foreign_small=2 * n_dfx,
                     # +1 оплата в запас: валютный платёж может занять отвлекающий случай
                     foreign_paid=iplanned["partial_fx_payment_at_cutoff"] + 1
-                    if iplanned["partial_fx_payment_at_cutoff"] else 0)
+                    if iplanned["partial_fx_payment_at_cutoff"] else 0,
+                    # fx_conversion нужен валютный документ (у saas или с одной дешёвой валютой их может не быть)
+                    foreign_docs=2 * planned["fx_conversion"],
+                    # payment_allocation нужен платёж, сумму которого восстановят по проводке (+1 в запас)
+                    recoverable_paid=planned["payment_allocation"] + 1 if planned["payment_allocation"] else 0)
     dm = make_distractors(h, dist_rng, ids, dplanned)
     clean_tables = copy.deepcopy(sorted_tables(h))  # чистая история уже с отвлекающими случаями
     clean_sha = tables_digest(clean_tables)
