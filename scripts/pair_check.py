@@ -80,6 +80,10 @@ def _truth(ep):
     return json.loads((Path(ep) / "private" / "truth.json").read_text(encoding="utf-8"))
 
 
+def _prov(ep):
+    return json.loads((Path(ep) / "private" / "provenance.json").read_text(encoding="utf-8"))
+
+
 def oracle_findings(ep):
     t = _truth(ep)
     return {"episode_id": t["episode_id"], "findings": [
@@ -128,12 +132,12 @@ def check_pair(n: int, base: Path, env) -> dict:
     kinds = {d["kind"] for d in _truth(src)["distractors"]}
     if cfg.get("clean") and not set(want) <= kinds:
         bad("нет отвлекающего случая %s" % want)
-    if not certify(read_public(src / "public"), _truth(src))["valid"]:
+    if not certify(read_public(src / "public"), _truth(src), _prov(src))["valid"]:
         bad("сертификат не подтвердил исходный эпизод")
 
     # блок 4: копия как у жюри
     mapping = transform_episode(src, var, seed=n, permute=permute, remap=remap)
-    if not certify(read_public(var / "public"), _truth(var))["valid"]:
+    if not certify(read_public(var / "public"), _truth(var), _prov(var))["valid"]:
         bad("сертификат не подтвердил копию")
 
     t1, fin_src, steps = run_oracle(env, src)

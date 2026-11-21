@@ -187,7 +187,10 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
     h = build_clean(cfg, content, ids,
                     reserve_rows=3 * (n_dup + n_dst) + n_one_row,
                     reserve_docs=n_dup + n_dst, small_count=2 * n_dup + dplanned["legit_recurring"],
-                    base_small=dplanned["legit_recurring"], foreign_small=2 * n_dfx)
+                    base_small=dplanned["legit_recurring"], foreign_small=2 * n_dfx,
+                    # +1 оплата в запас: валютный платёж может занять отвлекающий случай
+                    foreign_paid=iplanned["partial_fx_payment_at_cutoff"] + 1
+                    if iplanned["partial_fx_payment_at_cutoff"] else 0)
     dm = make_distractors(h, dist_rng, ids, dplanned)
     clean_tables = copy.deepcopy(sorted_tables(h))  # чистая история уже с отвлекающими случаями
     clean_sha = tables_digest(clean_tables)

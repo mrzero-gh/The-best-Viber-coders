@@ -141,6 +141,12 @@ class Server:
         except (ValueError, UnicodeDecodeError, RecursionError):
             # RecursionError: JSON с очень глубокой вложенностью ([[[[...]]]]) - ошибка клиента
             raise _ProtoError("BAD_REQUEST")
+        try:
+            # экранированный одиночный суррогат ("\ud800") - валидный JSON, но не текст UTF-8:
+            # такой ID попал бы в ответ (NOT_FOUND) и сломал его кодирование уже после расхода шага
+            canonical_dumps(msg).encode("utf-8")
+        except UnicodeEncodeError:
+            raise _ProtoError("BAD_REQUEST")
         if not isinstance(msg, dict) or not isinstance(msg.get("cmd"), str):
             raise _ProtoError("BAD_REQUEST")
         cmd = msg["cmd"]
