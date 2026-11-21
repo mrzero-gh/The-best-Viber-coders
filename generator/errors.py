@@ -198,11 +198,16 @@ class Injector:
         """По выписке платёж закрывает счёт целиком, а в книге на 1200 разнесена часть или ничего;
         остаток — на 2900. Возвращает issue_id или None."""
         h, ctx = self.h, self.h.ctx
+        missing_only = False
         if payment is None:
-            cands = [p for p in h.payments
-                     if p["payment_id"] not in self.used and p["amount_minor"] > 0
-                     and len(p["invoice_refs"]) == 1
-                     and p["invoice_refs"][0]["invoice_id"] not in self.used and self._recoverable(p)]
+            free = [p for p in h.payments
+                    if p["payment_id"] not in self.used and p["amount_minor"] > 0
+                    and len(p["invoice_refs"]) == 1 and p["invoice_refs"][0]["invoice_id"] not in self.used]
+            cands = [p for p in free if self._recoverable(p)]
+            if not cands and self.allocation_variant != "partial":
+                # платежи только в валюте дешевле базовой (база KWD, валюта UZS): частичную оплату
+                # не восстановить, а полный пропуск (по счёту нет строки 1200) восстанавливается точно
+                cands, missing_only = free, True
             if not cands:
                 return None
             payment = self.rng.choice(cands)
@@ -210,7 +215,8 @@ class Injector:
         ref = payment["invoice_refs"][0]
         total = ref["amount_minor"]
         # вариант из конфига относится к самостоятельной ошибке, не к совмещённому сценарию
-        allocated = self._partial(total, self.allocation_variant if scenario is None else "any")
+        allocated = 0 if missing_only else self._partial(
+            total, self.allocation_variant if scenario is None else "any")
         by_id = {inv["invoice_id"]: inv for inv in h.invoices}
         old = [r for r in h.ledger if r["payment_id"] == pid]
         h.ledger = [r for r in h.ledger if r["payment_id"] != pid]
