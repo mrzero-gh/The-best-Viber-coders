@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="610" viewBox="0 0 1200 610" role="img" aria-labelledby="title desc">
+  <title id="title">Проверка по правилам жюри: 100 баллов</title>
+  <desc id="desc">Пять блоков критериев жюри и наша проверка каждого. Контракт и изоляция, 25 баллов: проверки C01–C20, tests/test_judge_adapter.py. Данные и эталон, 25 баллов: сценарии D01–D20 с независимым сертификатом на случайных компаниях, python -m scripts.fuzz_generator. Надёжность награды, 25 баллов: 20 векторов matcher и примеры M01–M12, tests/test_jury_block3.py. Воспроизводимость, 15 баллов: парные проверки P01–P20 и побайтное совпадение эпизодов на Windows и Linux, python -m scripts.pair_check. Инженерия, 10 баллов: одна команда, разбор сбоев с замерами, ограничения с проверками, python -m scripts.check --docker.</desc>
+
+  <rect width="1200" height="610" rx="22" fill="#F6F3EA"/>
+
+  <g id="heading" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fill="#14171A">
+    <text x="56" y="64" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" letter-spacing="1.5" fill="#6B6F73">ПРОВЕРКА ПО ПРАВИЛАМ ЖЮРИ · 100 БАЛЛОВ</text>
+    <text x="54" y="114" font-size="40" font-weight="800" letter-spacing="-0.5">Каждый блок — команда, которую можно запустить</text>
+  </g>
+
+  <!-- итоговая полоса: ширина сегмента пропорциональна баллам (1088 = 100) -->
+  <g id="total-bar">
+    <rect x="56" y="140" width="268" height="18" rx="4" fill="#14171A"/>
+    <rect x="328" y="140" width="268" height="18" rx="4" fill="#14171A"/>
+    <rect x="600" y="140" width="268" height="18" rx="4" fill="#14171A"/>
+    <rect x="872" y="140" width="159" height="18" rx="4" fill="#14171A"/>
+    <rect x="1035" y="140" width="109" height="18" rx="4" fill="#2F7D4F"/>
+  </g>
+
+  <g id="rows" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <g transform="translate(56 184)">
+      <rect width="1088" height="70" rx="12" fill="#FFFFFF" stroke="#D9D4C5" stroke-width="1.5"/>
+      <text x="26" y="46" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="30" font-weight="700" fill="#14171A">25</text>
+      <text x="96" y="30" font-size="22" font-weight="700" fill="#14171A">Контракт и изоляция</text>
+      <text x="96" y="56" font-size="19" fill="#5A5E62">C01–C20: reset/step, схемы, лимиты, ошибки ввода, утечки</text>
+      <text x="1064" y="30" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#3E4246">tests/test_judge_adapter.py</text>
+      <text x="1064" y="56" text-anchor="end" font-size="19" font-weight="700" fill="#2F7D4F">✓ 20 из 20</text>
+    </g>
+    <g transform="translate(56 264)">
+      <rect width="1088" height="70" rx="12" fill="#FFFFFF" stroke="#D9D4C5" stroke-width="1.5"/>
+      <text x="26" y="46" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="30" font-weight="700" fill="#14171A">25</text>
+      <text x="96" y="30" font-size="22" font-weight="700" fill="#14171A">Данные и эталон</text>
+      <text x="96" y="56" font-size="19" fill="#5A5E62">D01–D20: независимый сертификат на случайных компаниях</text>
+      <text x="1064" y="30" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#3E4246">python -m scripts.fuzz_generator</text>
+      <text x="1064" y="56" text-anchor="end" font-size="19" font-weight="700" fill="#2F7D4F">✓ 0 провалов</text>
+    </g>
+    <g transform="translate(56 344)">
+      <rect width="1088" height="70" rx="12" fill="#FFFFFF" stroke="#D9D4C5" stroke-width="1.5"/>
+      <text x="26" y="46" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="30" font-weight="700" fill="#14171A">25</text>
+      <text x="96" y="30" font-size="22" font-weight="700" fill="#14171A">Надёжность награды</text>
+      <text x="96" y="56" font-size="19" fill="#5A5E62">20 векторов matcher и M01–M12 с точными значениями</text>
+      <text x="1064" y="30" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#3E4246">tests/test_jury_block3.py</text>
+      <text x="1064" y="56" text-anchor="end" font-size="19" font-weight="700" fill="#2F7D4F">✓ 32 из 32</text>
+    </g>
+    <g transform="translate(56 424)">
+      <rect width="1088" height="70" rx="12" fill="#FFFFFF" stroke="#D9D4C5" stroke-width="1.5"/>
+      <text x="26" y="46" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="30" font-weight="700" fill="#14171A">15</text>
+      <text x="96" y="30" font-size="22" font-weight="700" fill="#14171A">Воспроизводимость</text>
+      <text x="96" y="56" font-size="19" fill="#5A5E62">P01–P20; эпизоды Windows и Linux совпадают побайтно</text>
+      <text x="1064" y="30" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#3E4246">python -m scripts.pair_check</text>
+      <text x="1064" y="56" text-anchor="end" font-size="19" font-weight="700" fill="#2F7D4F">✓ 20 из 20</text>
+    </g>
+    <g transform="translate(56 504)">
+      <rect width="1088" height="70" rx="12" fill="#FFFFFF" stroke="#2F7D4F" stroke-width="1.5"/>
+      <text x="26" y="46" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="30" font-weight="700" fill="#2F7D4F">10</text>
+      <text x="96" y="30" font-size="22" font-weight="700" fill="#14171A">Инженерия</text>
+      <text x="96" y="56" font-size="19" fill="#5A5E62">одна команда, разбор сбоев с замерами, ограничения</text>
+      <text x="1064" y="30" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Consolas, Menlo, monospace" font-size="18" fill="#3E4246">python -m scripts.check --docker</text>
+      <text x="1064" y="56" text-anchor="end" font-size="19" font-weight="700" fill="#2F7D4F">✓ CHECK OK</text>
+    </g>
+  </g>
+</svg>
