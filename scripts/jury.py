@@ -124,15 +124,17 @@ def oracle_truth(seed: int, cfg: dict) -> dict:
         return json.loads((ep / "private" / "truth.json").read_text(encoding="utf-8"))
 
 
-def evaluate_policy_on_episode(policy, seed: int, cfg: dict, grader_str: str, truth: dict | None = None) -> dict:
-    """Один эпизод: сервер среды генерирует его по seed и cfg; policy - PolicyProcess."""
+def evaluate_policy_on_episode(policy, seed: int, cfg: dict, grader_str: str, truth: dict | None = None,
+                               episode: str | None = None) -> dict:
+    """Один эпизод: сервер среды генерирует его по seed и cfg (или загружает сохранённый episode,
+    как закрытый эпизод жюри); policy - PolicyProcess."""
     t0 = time.monotonic()
     policy.reset()
     if truth is not None:
         policy.set_truth(truth)
 
     steps = 0
-    with AuditEnv(grader=grader_str) as env:
+    with AuditEnv(grader=grader_str, episode=episode) as env:
         obs, info = env.reset(seed=seed, config=dict(cfg, mode="train"))
         terminated = truncated = False
         while not (terminated or truncated):

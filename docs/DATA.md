@@ -186,7 +186,7 @@ date,source_currency,target_currency,rate
 ```python
 from env.client import AuditEnv
 with AuditEnv() as env:                                   # сам генерирует по seed+config
-# with AuditEnv(episode="episodes/dev/EP-11N2H5M6") as env:  # или готовый эпизод с диска
+# with AuditEnv(episode="episodes/dev/EP-4A84A8A4") as env:  # или готовый эпизод с диска
     obs, info = env.reset(42, config)                      # config["mode"] = "train" или "eval"
     obs, reward, terminated, truncated, info = env.step({"tool": "list_records", "args": {"table": "ledger"}})
 ```

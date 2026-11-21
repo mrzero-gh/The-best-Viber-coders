@@ -74,9 +74,10 @@ def _balance(ledger: list) -> tuple[int, list]:
     per_doc = {}
     for r in ledger:
         # проводки платежа относятся к платежу (в них есть и invoice_id), остальные - к счёту
-        doc = r["payment_id"] or r["invoice_id"]
+        # ключ с пространством: invoice_id и payment_id могут совпасть как строки
+        doc = ("payment", r["payment_id"]) if r["payment_id"] else ("invoice", r["invoice_id"])
         per_doc[doc] = per_doc.get(doc, 0) + r["debit_minor"] - r["credit_minor"]
-    return total, sorted(str(d) for d, v in per_doc.items() if v != 0)
+    return total, sorted(str(d[1]) for d, v in per_doc.items() if v != 0)
 
 
 def check(public: dict, provenance: dict) -> dict:

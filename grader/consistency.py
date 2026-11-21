@@ -25,6 +25,7 @@
 """
 import argparse
 import json
+from fractions import Fraction
 from pathlib import Path
 
 from common.jsonio import canonical_dumps
@@ -66,11 +67,25 @@ def _duplicates(data: PublicEvidence) -> set:
     return pairs
 
 
+def _links(data: PublicEvidence, doc: dict) -> None:
+    """Контрагент и ссылки строк документа: строки счёта - на его контрагента; строки платежа - на
+    контрагента счетов из выписки, ссылка на счёт только у строки 1200. Ни одна ошибка их не меняет."""
+    rows = data.rows(doc)
+    if "invoice_id" in doc:
+        require(all(row["entity_id"] == doc["entity_id"] for row in rows), "ledger rows name another counterparty")
+        return
+    entities = {data.invoices[i]["entity_id"] for i in data.allocations(doc)} or {None}
+    require(all(row["entity_id"] in entities for row in rows), "ledger rows name another counterparty")
+    require(all(row["account"] == "1200" or row["invoice_id"] is None for row in rows),
+            "payment row outside 1200 is linked to an invoice")
+
+
 def _check_clean(clean: PublicEvidence, errors: list) -> None:
     for doc in clean.documents.values():
         name = _doc_id(doc)
         try:
             clean.assert_clean(doc)
+            _links(clean, doc)
             require(all(row["timestamp"] == clean.timestamp(doc) for row in clean.rows(doc)),
                     "posting date differs from document date")
             if "payment_id" in doc:
@@ -101,12 +116,30 @@ def _payment_change(data: PublicEvidence, doc: dict, invoice_ids: set) -> None:
     require(any(posted[i] < declared[i] for i in invoice_ids), "allocation is not reduced")
 
 
+def _one_rate(pairs: list) -> bool:
+    """Есть ли курс k > 0, при котором ROUND_HALF_EVEN(n·k) = c для всех пар (n, c), n > 0.
+
+    Для пары это отрезок k в [(c − 1/2)/n, (c + 1/2)/n]; концы входят, только если c чётно
+    (половина округляется к чётному). Курс существует, если пересечение отрезков не пусто."""
+    low, low_in, high, high_in = Fraction(0), False, None, False
+    for n, c in pairs:
+        if c < 0:
+            return False
+        lo, hi, inside = Fraction(2 * c - 1, 2 * n), Fraction(2 * c + 1, 2 * n), c % 2 == 0
+        if lo > low or (lo == low and not inside):
+            low, low_in = lo, inside if lo > low else False
+        if high is None or hi < high or (hi == high and not inside):
+            high, high_in = hi, inside if (high is None or hi < high) else False
+    return high is None or low < high or (low == high and low_in and high_in)
+
+
 def _fx_change(data: PublicEvidence, doc: dict) -> None:
     """Ошибка курса: документ проведён по одному неверному курсу, остальное - по правилам.
 
     Счёт: ровно Дт 1200 / Кт 4000 на одну и ту же сумму, отличную от верной. Платёж: Дт 1010 не по
-    курсу даты платежа, остаток 2900 пересчитан тем же курсом, строки 1200 - распределения выписки
-    по курсу дат счетов, разница - 7900. Распределения и счета учёта меняться не могут."""
+    курсу даты платежа, остаток 2900 пересчитан тем же курсом (существует один курс k, дающий обе
+    суммы после округления), строки 1200 - распределения выписки по курсу дат счетов, разница -
+    7900. Распределения и счета учёта меняться не могут."""
     book = data.book(doc)
     rule = _rule_book(data, doc)
     if "invoice_id" in doc:
@@ -122,8 +155,8 @@ def _fx_change(data: PublicEvidence, doc: dict) -> None:
     rest = book.get(("2900", None), 0)
     total = abs(doc["amount_minor"])
     remainder = total - sum(data.allocations(doc).values())
-    # 1010 = round(total·k), 2900 = round(remainder·k) с одним и тем же неверным курсом k
-    require(-sign * rest >= 0 and abs(abs(cash) * remainder - abs(rest) * total) * 2 <= remainder + total,
+    pairs = [(total, sign * cash)] + ([(remainder, -sign * rest)] if remainder else [])
+    require((remainder or not rest) and _one_rate(pairs),
             "FX error converts the unallocated remainder at another rate")
     expected = {("1010", None): cash, **{key: value for key, value in rule.items() if key[0] == "1200"},
                 ("2900", None): rest}
@@ -132,38 +165,71 @@ def _fx_change(data: PublicEvidence, doc: dict) -> None:
             "FX error changes more than the conversion rate")
 
 
+_TABLES = {"invoice": "invoices", "payment": "payments"}
+
+
+def _doc(data: PublicEvidence, key: tuple):
+    return getattr(data, _TABLES[key[0]]).get(key[1])
+
+
+def _keys(public: PublicEvidence, clean: PublicEvidence, identifier: str) -> list:
+    """Документы с этим ID: invoice_id и payment_id - разные пространства, строка может быть в обоих."""
+    return [(kind, identifier) for kind in _TABLES
+            if _doc(public, (kind, identifier)) is not None or _doc(clean, (kind, identifier)) is not None]
+
+
+def _by_evidence(public, clean, keys: list, evidence: set) -> list:
+    """Из нескольких прочтений ID оставляет документы, чей doc_id есть в доказательствах."""
+    if len(keys) <= 1:
+        return keys
+    return [key for key in keys if ((_doc(public, key) or _doc(clean, key))["doc_id"]) in evidence]
+
+
 def _own_issues(public: PublicEvidence, clean: PublicEvidence, truth: dict, errors: list):
-    """Ошибки по документам, к которым они относятся. Счёт в payment_allocation только указывает
-    распределение платежа; оригинал дубля не меняется - меняется (появляется) только копия."""
+    """Ошибки по документам (ключ - пространство и ID), к которым они относятся. Счёт в
+    payment_allocation только указывает распределение платежа; оригинал дубля не меняется -
+    меняется (появляется) только копия."""
     own, copies, pairs = {}, set(), set()
     for issue in truth["issues"]:
         kind, affected = issue["type"], issue["affected_ids"]
+        evidence = set().union(*issue["evidence_sets"]) if issue["evidence_sets"] else set()
         if kind == "duplicate_invoice":
             fresh = [i for i in affected if i not in clean.invoices]
             if len(fresh) != 1 or len(affected) != 2:
                 errors.append(f"{issue['issue_id']}: duplicate needs exactly one invoice absent from clean history")
-            copies.update(fresh)
+            copies.update(("invoice", i) for i in fresh)
             pairs.add(tuple(sorted(affected)))
         elif kind == "payment_allocation":
-            payments = [i for i in affected if i in public.payments or i in clean.payments]
-            if len(payments) != 1:
-                errors.append(f"{issue['issue_id']}: allocation needs exactly one payment")
-            for payment in payments:
-                own.setdefault(payment, {}).setdefault(kind, set()).update(i for i in affected if i != payment)
+            options = [(pay, inv) for pay in affected for inv in affected if pay != inv
+                       and ("payment", pay) in _keys(public, clean, pay) and ("invoice", inv) in _keys(public, clean, inv)]
+            if len(options) > 1:
+                options = [(pay, inv) for pay, inv in options
+                           if (_doc(public, ("payment", pay)) or _doc(clean, ("payment", pay)))["doc_id"] in evidence]
+            if len(affected) != 2 or len(options) != 1:
+                errors.append(f"{issue['issue_id']}: allocation needs exactly one payment and one invoice")
+                continue
+            payment, invoice = options[0]
+            own.setdefault(("payment", payment), {}).setdefault(kind, set()).add(invoice)
         else:
-            if len(affected) != 1:
+            keys = [key for identifier in affected for key in _by_evidence(
+                public, clean, _keys(public, clean, identifier), evidence)]
+            if len(affected) != 1 or len(keys) != 1:
                 errors.append(f"{issue['issue_id']}: {kind} needs exactly one document")
-            for identifier in affected:
-                own.setdefault(identifier, {}).setdefault(kind, set())
+            for key in keys:
+                own.setdefault(key, {}).setdefault(kind, set())
     return own, copies, pairs
 
 
-def _check_document(public: PublicEvidence, clean: PublicEvidence, name: str, kinds: dict, copies: set) -> None:
-    before = clean.invoices.get(name) or clean.payments.get(name)
-    after = public.invoices.get(name) or public.payments.get(name)
+def _entities(data: PublicEvidence, doc: dict) -> set:
+    return {row["entity_id"] for row in data.rows(doc)}
+
+
+def _check_document(public: PublicEvidence, clean: PublicEvidence, key: tuple, kinds: dict, copies: set) -> None:
+    before, after = _doc(clean, key), _doc(public, key)
     require(after is not None, "document removed from public data")
+    _links(public, after)
     if before is None:
-        require(name in copies, "new document is not a declared duplicate")
+        require(key in copies, "new document is not a declared duplicate")
         require(set(kinds) <= {"fx_conversion"}, f"new document has issues {sorted(kinds)}")
         if "fx_conversion" in kinds:
             _fx_change(public, after)
@@ -172,10 +238,12 @@ def _check_document(public: PublicEvidence, clean: PublicEvidence, name: str, ki
         require(all(row["timestamp"] == public.timestamp(after) for row in public.rows(after)),
                 "posting dates differ from document date")
         return
-    require(name not in copies, "declared duplicate copy exists in clean history")
-    changed = {key for key in set(before) | set(after) if before.get(key) != after.get(key)}
+    require(key not in copies, "declared duplicate copy exists in clean history")
+    changed = {field for field in set(before) | set(after) if before.get(field) != after.get(field)}
     require(changed <= set(_DOC_TIME), f"document fields changed: {sorted(changed)}")
     require(not changed or "period_cutoff" in kinds, "document date changed without period_cutoff")
+    require(not clean.rows(before) or _entities(public, after) == _entities(clean, before),
+            "ledger rows name another counterparty")
     old, new = _postings(clean, before), _postings(public, after)
     if not kinds:
         require(old == new, "postings changed without a declared issue")
@@ -204,12 +272,13 @@ def _check_document(public: PublicEvidence, clean: PublicEvidence, name: str, ki
 def _check_changes(public: PublicEvidence, clean: PublicEvidence, truth: dict, errors: list) -> None:
     own, copies, pairs = _own_issues(public, clean, truth, errors)
     require(public.fx == clean.fx, "FX table differs from clean history")
-    names = set(clean.invoices) | set(clean.payments) | set(public.invoices) | set(public.payments)
-    for name in sorted(names | set(own)):
+    keys = {(kind, identifier) for kind, table in _TABLES.items()
+            for identifier in set(getattr(clean, table)) | set(getattr(public, table))}
+    for key in sorted(keys | set(own)):
         try:
-            _check_document(public, clean, name, own.get(name, {}), copies)
+            _check_document(public, clean, key, own.get(key, {}), copies)
         except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
-            errors.append(f"{name}: {exc}")
+            errors.append(f"{key[1]}: {exc}")
     for first, second in sorted(_duplicates(public) - pairs):
         errors.append(f"{second}: undeclared duplicate of {first}")
 
