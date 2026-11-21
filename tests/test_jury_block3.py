@@ -103,6 +103,15 @@ def test_06_11_wrong_field(n, bad):
     assert_metrics(run([bad], truth(A)), 0, 1, 1, -1.0, f1=0)
 
 
+@pytest.mark.parametrize("unknown_type", ["invented", "", T.upper(), " " + T])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_unknown_string_type_preserves_correct_findings(unknown_type, reverse):
+    findings = [F, finding(type_=unknown_type)]
+    if reverse:
+        findings.reverse()
+    assert_metrics(run(findings, truth(A)), 1, 1, 0, 47 / 150, p=0.5, r=1, f1=2 / 3)
+
+
 def test_12_mass_flagging():
     """5 записей x 4 типа = 20 выводов, ровно один совпадает с A."""
     records = (R1, R2, R3, "INV-R4", "INV-R5")
@@ -199,24 +208,25 @@ def _edge_issue(iid, evidence):
 
 
 def test_m10_maximum_matching():
-    """F0 подходит A и B, F1 - только A: нужно F1->A, F0->B, TP=2 (жадный F0->A дал бы 1).
-    В наших эпизодах такой граф не возникает (ключ (type, affected_ids) уникален), но match()
-    всё равно строит максимальное паросочетание."""
+    """F0 подходит A и B, F1 - только A: нужно F1->A, F0->B, TP=2 (жадный F0->A дал бы 1)."""
     a = _edge_issue("ISS-0000000A", ((D1,),))
     b = _edge_issue("ISS-0000000B", ((D2,),))
     f0 = finding(affected=(R1, R2), evidence=(D1, D2))
     f1 = finding(affected=(R1, R2), evidence=(D1,))
-    res = match([f0, f1], [a, b])
+    res = match([f0, f1], [a, b], PUBLIC)
     assert res["tp"] == 2
     assert res["matches"] == [{"finding_index": 0, "issue_id": "ISS-0000000B"},
                               {"finding_index": 1, "issue_id": "ISS-0000000A"}]
+    for findings in ([f0, f1], [f1, f0]):
+        for issues in ((a, b), (b, a)):
+            assert_metrics(run(findings, truth(*issues)), 2, 0, 0, 0.98, p=1, r=1, f1=1)
 
 
-def test_m10_graph_cannot_occur_in_our_truth():
-    """Почему жадный порядок у нас эквивалентен максимальному: такой truth отвергается."""
+def test_ambiguous_truth_still_requires_unique_issue_ids():
+    """Совпадение type/affected_ids допустимо, повтор issue_id остаётся ошибкой сервера."""
     a = _edge_issue("ISS-0000000A", ((D1,),))
-    b = _edge_issue("ISS-0000000B", ((D2,),))
-    with pytest.raises(ValueError):
+    b = _edge_issue("ISS-0000000A", ((D2,),))
+    with pytest.raises(ValueError, match="duplicate issue ID"):
         run([], truth(a, b))
 
 
@@ -224,11 +234,13 @@ def test_m11_deterministic_tie_break():
     a = _edge_issue("ISS-0000000A", ((D1,),))
     b = _edge_issue("ISS-0000000B", ((D1,),))
     f0 = f1 = finding(affected=(R1, R2), evidence=(D1,))
-    res = match([f0, f1], [b, a])
+    res = match([f0, f1], [b, a], PUBLIC)
     assert res["tp"] == 2
     assert res["matches"] == [{"finding_index": 0, "issue_id": "ISS-0000000A"},
                               {"finding_index": 1, "issue_id": "ISS-0000000B"}]
-    assert match([f1, f0], [a, b])["tp"] == 2
+    assert match([f1, f0], [a, b], PUBLIC) == res
+    for issues in ((a, b), (b, a)):
+        assert_metrics(run([f0, f1], truth(*issues)), 2, 0, 0, 0.98, p=1, r=1, f1=1)
 
 
 def test_m12_identical_correct_findings():

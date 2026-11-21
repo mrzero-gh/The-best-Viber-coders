@@ -79,14 +79,12 @@ def validate_truth(truth: dict, episode_id: str) -> None:
     if truth["episode_id"] != episode_id:
         raise ValueError("truth.episode_id: wrong episode")
     seen_ids = set()
-    seen_keys = set()
     for issue in truth["issues"]:
-        affected = canonical_ids(issue["affected_ids"])
-        key = (issue["type"], affected)
-        if issue["issue_id"] in seen_ids or key in seen_keys:
-            raise ValueError("truth: duplicate issue ID or canonical key")
+        # Разные ошибки могут иметь одинаковые type/affected_ids (фикстуры M10/M11).
+        # Их разделяют issue_id и максимальное сопоставление, а не канонический ключ.
+        if issue["issue_id"] in seen_ids:
+            raise ValueError("truth: duplicate issue ID")
         seen_ids.add(issue["issue_id"])
-        seen_keys.add(key)
         for ids in [issue["affected_ids"], *issue["evidence_sets"]]:
             canonical = canonical_ids(ids)
             if "" in canonical or len(canonical) != len(ids):

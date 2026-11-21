@@ -69,8 +69,8 @@ def test_normalization_and_alternative_evidence_do_not_mutate_inputs():
 
 
 def test_one_to_one_and_stable_issue_order():
-    # Прямой matcher детерминирован даже на неоднозначном входе; evaluate
-    # отдельно запрещает такие эталоны согласно инварианту генератора.
+    # Разные issue_id могут описывать один type/affected_ids; повторы выводов
+    # остаются отдельными вершинами и не увеличивают число ошибок в truth.
     first, second = issue(number=1), issue(number=2)
     second["affected_ids"] = first["affected_ids"][:]
     second["evidence_sets"] = deepcopy(first["evidence_sets"])
@@ -82,6 +82,9 @@ def test_one_to_one_and_stable_issue_order():
                     {"finding_index": 1, "issue_id": second["issue_id"]}],
         "unmatched_findings": [2], "unmatched_issues": [],
     }
+    assert score({"episode_id": EPISODE_ID, "findings": findings}, truth_for(second, first))["metrics"] == {
+        "tp": 2, "fp": 1, "fn": 0, "precision": 2 / 3, "recall": 1.0, "f1": 0.8,
+    }
 
 
 @pytest.mark.parametrize("steps", [-1, True, 1.0, "1", None])
@@ -91,15 +94,14 @@ def test_bad_server_step_count_is_not_an_agent_penalty(steps):
         score(answer_for(truth), truth, steps)
 
 
-@pytest.mark.parametrize("defect", ["episode", "duplicate_key", "duplicate_id", "float", "empty_evidence"])
+@pytest.mark.parametrize("defect", ["episode", "duplicate_id", "float", "empty_evidence"])
 def test_bad_truth_fails_on_server(defect):
     truth = truth_for(issue())
     if defect == "episode":
         truth["episode_id"] = "EP-00000002"
-    elif defect in ("duplicate_key", "duplicate_id"):
+    elif defect == "duplicate_id":
         extra = issue(number=2)
-        key = "affected_ids" if defect == "duplicate_key" else "issue_id"
-        extra[key] = truth["issues"][0][key]
+        extra["issue_id"] = truth["issues"][0]["issue_id"]
         truth["issues"].append(extra)
     elif defect == "float":
         truth["issues"][0]["expected_amount_minor"] = 1000.0

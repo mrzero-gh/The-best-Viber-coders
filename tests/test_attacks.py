@@ -8,7 +8,8 @@ from tests.test_grader_fixtures import EPISODE_ID, answer_for, issue, truth_for
 
 
 @pytest.mark.parametrize("field,value", [
-    ("type", "invented"), ("type", []), ("claimed_amount_minor", True),
+    ("type", []), ("type", {}), ("type", None), ("type", True), ("type", 1), ("type", 1.0),
+    ("claimed_amount_minor", True),
     ("claimed_amount_minor", 1000.0), ("claimed_amount_minor", "1000"),
     ("claimed_amount_minor", float("nan")), ("claimed_amount_minor", float("inf")),
     ("currency", None), ("currency", ""), ("currency", 840),
@@ -50,7 +51,7 @@ def test_missing_field(field):
 
 
 @pytest.mark.parametrize("field,value", [
-    ("type", "period_cutoff"), ("affected_ids", ["INV-99999999"]),
+    ("type", "period_cutoff"), ("type", "invented"), ("affected_ids", ["INV-99999999"]),
     ("affected_ids", ["inv-00000001"]), ("affected_ids", [" "]),
     ("affected_ids", ["INV-00000001", "INV-00000002"]),
     ("evidence_ids", ["DOC-99999999", "L-99999999"]),

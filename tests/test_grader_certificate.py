@@ -140,6 +140,7 @@ def test_combined_scenarios_recompute_both_errors(factory):
     before = deepcopy((public, truth))
     report = certify(public, truth)
     assert report["valid"], report
+    assert report["fully_verified"] is False
     assert report["summary"]["issues_confirmed"] == 2
     assert report["ledger_balance_minor"] == 0
     assert report["clean_history_balance"]["status"] == "not_checked"
@@ -322,10 +323,24 @@ def test_episode_cli_writes_only_private_certificate_and_returns_failure(tmp_pat
         if not valid:
             truth["issues"][0]["expected_amount_minor"] += 1
             (tmp_path / "private" / "truth.json").write_text(json.dumps(truth), encoding="utf-8")
-        completed = subprocess.run([sys.executable, "-m", "grader.certificate", str(tmp_path)],
+        completed = subprocess.run([sys.executable, "-m", "grader.certificate", str(tmp_path), "--public-only"],
                                    capture_output=True, text=True, check=False)
         assert completed.returncode == (0 if valid else 1), completed.stderr
         assert json.loads(completed.stdout)["valid"] is valid
+
+
+def test_full_certificate_refuses_missing_clean_history(tmp_path):
+    public, truth = combined_payment()
+    write_episode(tmp_path, public, truth)
+    report = certify_episode(tmp_path, require_history=True)
+    assert report["valid"] is False
+    assert report["fully_verified"] is False
+    assert report["clean_history_balance"]["status"] == "not_checked"
+    assert report["summary"]["issues_confirmed"] == 2
+    completed = subprocess.run([sys.executable, "-m", "grader.certificate", str(tmp_path)],
+                               capture_output=True, text=True, encoding="utf-8", check=False)
+    assert completed.returncode == 1, completed.stderr
+    assert json.loads(completed.stdout)["history_verification_required"] is True
 
 
 def test_clean_ledger_balance_is_checked_without_claiming_pre_mutation_balance():
