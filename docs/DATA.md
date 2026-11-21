@@ -35,7 +35,8 @@ seed + config ──► генератор (A) ──► episodes/<split>/<EP-�
   "company": {"archetype": "importer", "base_currency": "KZT", "timezone": "+05:00",
               "foreign_currencies": ["USD", "CNY", "EUR", "RUB", "JPY"]},
   "size": {"ledger_rows": [300, 1200], "documents": [40, 120]},
-  "errors": {"duplicate_invoice": {"enabled": true, "count": [0, 2]}, "...": "так же для 4 типов"},
+  "errors": {"duplicate_invoice": {"enabled": true, "count": [0, 2]}, "...": "так же для 4 типов",
+             "payment_allocation": {"enabled": true, "count": [1, 3], "variant": "any"}},
   "interactions": {"partial_fx_payment_at_cutoff": {"enabled": false, "count": [0, 1]}, "...": "..."},
   "distractors": {"split_payment": {"enabled": true, "count": [0, 2]}, "...": "..."},
   "clean": false, "max_errors": 12
@@ -43,6 +44,8 @@ seed + config ──► генератор (A) ──► episodes/<split>/<EP-�
 ```
 
 `mode` (`train` / `eval`) генератор не использует — его читает среда.
+
+`errors.payment_allocation.variant` (необязательно): `any` (по умолчанию: в книге не разнесено ничего в 1 случае из 4, иначе 20–80 % суммы), `missing` (всегда пропуск: ничего не разнесено), `partial` (всегда частичное распределение). Так отдельно получаются эпизоды D09–D11 жюри. Совмещённый сценарий `partial_fx_payment_at_cutoff` вариант не меняет.
 
 ## 3. Что генерируется: папка эпизода
 
@@ -59,7 +62,7 @@ seed + config ──► генератор (A) ──► episodes/<split>/<EP-�
  "rounding": {"mode": "ROUND_HALF_EVEN"}, "csv_null": "", "config_version": "default-v1", "schema_version": "1.0"}
 ```
 
-**`policy.json`** — правила учёта, тоже приходит в первом наблюдении: курс берётся на локальную дату документа, `1 source = rate target`, округление после пересчёта, период `[start, end)`, допуск по сумме 1 минимальная единица.
+**`policy.json`** — правила учёта, тоже приходит в первом наблюдении: курс берётся на локальную дату документа, `1 source = rate target`, округление после пересчёта, период `[start, end)`, допуск по сумме по типам (`amount_tolerance_minor_by_type`: 0 для `duplicate_invoice` и `period_cutoff`, 1 для `fx_conversion` и `payment_allocation`).
 
 **`ledger.csv`** — книга проводок (таблица `ledger`).
 ```
@@ -103,7 +106,7 @@ date,source_currency,target_currency,rate
 Пример ошибки из `truth.json`:
 ```json
 {"issue_id": "ISS-FA0Y0KMS", "type": "period_cutoff", "affected_ids": ["INV-EB1XPBJB"],
- "expected_amount_minor": 2076280, "currency": "JPY", "amount_tolerance_minor": 1,
+ "expected_amount_minor": 2076280, "currency": "JPY", "amount_tolerance_minor": 0,
  "evidence_sets": [["DOC-69MP4DT0", "L-135CK00B"], ["DOC-69MP4DT0", "L-1FBEEYHS"], "..."], "scenario": null}
 ```
 
@@ -112,7 +115,7 @@ date,source_currency,target_currency,rate
 Журнал того, как чистая история компании превратилась в эпизод с ошибками. По нему видно, какое изменение породило каждую ошибку из `truth.json`.
 
 ```json
-{"episode_id": "EP-…", "generator_version": "0.5.0",
+{"episode_id": "EP-…", "generator_version": "0.6.0",
  "clean_history_sha256": "9f…",
  "mutations": [
    {"issue_id": "ISS-…", "type": "fx_conversion",

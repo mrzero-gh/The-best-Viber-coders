@@ -54,6 +54,9 @@ def generate_episode(seed: int, config: dict, output_dir: str) -> None:
     fx, policy) и private/ (truth, provenance, generation). Обёртка над generator.build."""
     from generator.build import generate_episode as _generate
     cfg = dict(config or {})
+    if isinstance(cfg.get("team_config"), dict):
+        # тот же config, что у reset: {"mode", "team_config", "episode_dir"} -> настройки генератора
+        cfg = dict(cfg["team_config"], **({"mode": cfg["mode"]} if "mode" in cfg else {}))
     if "mode" in cfg:
         cfg["mode"] = _env_mode(cfg["mode"])
     out = Path(output_dir)

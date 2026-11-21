@@ -58,7 +58,9 @@
 - **Сценарии взаимодействия** (включаются в `config.interactions`): `partial_fx_payment_at_cutoff` и `duplicate_invoice_wrong_fx`.
 - **Законные отвлекающие случаи** (`config.distractors`): `split_payment`, `refund`, `legit_recurring`, `late_evening_local`.
 - Каждый тип ошибки включается отдельно через `config.errors.<type>.enabled` и `count`.
-- Допуск суммы задан в `policy.amount_tolerance_minor` (сейчас 1 минимальная единица) и в `truth` для каждой ошибки.
+- Допуск суммы публикуется в `policy.amount_tolerance_minor_by_type` (0 для `duplicate_invoice` и `period_cutoff`, 1 для `fx_conversion` и `payment_allocation`; общий предел `policy.amount_tolerance_minor` = 1) и записан в `truth` для каждой ошибки. Действует минимум: фикстура с `amount_tolerance_minor: 0` в policy оценивается точно, даже если в truth стоит 1.
+- ID в фикстурах жюри могут быть любыми непустыми строками (`A`, `R1`, `fixture-C`): форматы `EP-`/`ISS-`/`DST-` использует только наш генератор. Одинаковые строки ID в разных таблицах допустимы: `affected_ids` — множество.
+- `generate_episode` принимает и config в формате `reset` (`{"mode", "team_config", "episode_dir"}`): берутся настройки из `team_config`.
 
 ## Изоляция и парные проверки
 

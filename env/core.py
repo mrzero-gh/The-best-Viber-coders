@@ -108,9 +108,10 @@ class AuditCore:
             return self._after(self._error("UNKNOWN_TOOL", None))
 
         if tool == "submit":
-            if set(args.keys()) != {"findings"}:
-                return self._after(self._error("INVALID_ARGS", tool))
-            return self._finish("submitted", args["findings"], self.steps_used - 1)
+            # без findings или с лишним аргументом - структурная ошибка submit (правило 8
+            # нормализации жюри): эпизод завершается с наградой -1, как при невалидных findings
+            findings = args["findings"] if set(args.keys()) == {"findings"} else None
+            return self._finish("submitted", findings, self.steps_used - 1)
 
         obs = getattr(self, "_tool_" + tool)(args)
         return self._after(obs)

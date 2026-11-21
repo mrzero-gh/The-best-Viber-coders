@@ -234,10 +234,17 @@ def test_unknown_string_type_is_fp_not_invalid():
     assert (res["metrics"]["tp"], res["metrics"]["fp"], res["metrics"]["fn"]) == (1, 1, 0)
 
 
-@pytest.mark.parametrize("bad", [None, 7, True, "", "x" * 65, ["fx_conversion"]])
-def test_non_string_or_empty_type_is_structural_error(bad):
+@pytest.mark.parametrize("bad", [None, 7, True, ["fx_conversion"]])
+def test_non_string_type_is_structural_error(bad):
     res = run([dict(F, type=bad)], truth(A))
     assert not res["valid"] and res["reward"] == -1
+
+
+@pytest.mark.parametrize("odd", ["", "x" * 65])
+def test_empty_or_long_string_type_is_fp(odd):
+    """Правило 8: структурно верный вывод с неверным type - FP (строка любой длины - строка)."""
+    res = run([dict(F, type=odd)], truth(A))
+    assert res["valid"] and (res["metrics"]["tp"], res["metrics"]["fp"], res["metrics"]["fn"]) == (0, 1, 1)
 
 
 def test_m11_deterministic_tie_break():

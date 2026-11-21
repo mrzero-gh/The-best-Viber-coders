@@ -55,11 +55,18 @@ def _check_range(value, lo, hi, where):
         raise ConfigError(f"{where}: нужен [min, max] в пределах [{lo}, {hi}], min <= max")
 
 
-def _merge_toggles(section_default, given, names, where):
+ALLOCATION_VARIANTS = ("any", "missing", "partial")
+
+
+def _merge_toggles(section_default, given, names, where, extra=None):
+    """extra: {имя: (ключ, допустимые значения)} - дополнительная настройка одного переключателя."""
     _check_keys(given, names, where)
     out = copy.deepcopy(section_default)
     for name, toggle in given.items():
-        _check_keys(toggle, ("enabled", "count"), f"{where}.{name}")
+        key, allowed = (extra or {}).get(name, (None, ()))
+        _check_keys(toggle, ("enabled", "count") + ((key,) if key else ()), f"{where}.{name}")
+        if key and key in toggle and toggle[key] not in allowed:
+            raise ConfigError(f"{where}.{name}.{key}: одно из {', '.join(allowed)}")
         if not isinstance(toggle.get("enabled"), bool):
             raise ConfigError(f"{where}.{name}.enabled: нужен true/false")
         out[name] = {**out[name], **copy.deepcopy(toggle)}
@@ -110,7 +117,8 @@ def normalize_config(config) -> dict:
     _check_range(cfg["size"]["ledger_rows"], *LEDGER_BOUNDS, "size.ledger_rows")
     _check_range(cfg["size"]["documents"], *DOCUMENT_BOUNDS, "size.documents")
 
-    cfg["errors"] = _merge_toggles(cfg["errors"], config.get("errors", {}), ERROR_TYPES, "errors")
+    cfg["errors"] = _merge_toggles(cfg["errors"], config.get("errors", {}), ERROR_TYPES, "errors",
+                                   extra={"payment_allocation": ("variant", ALLOCATION_VARIANTS)})
     cfg["interactions"] = _merge_toggles(cfg["interactions"], config.get("interactions", {}),
                                          INTERACTIONS, "interactions")
     cfg["distractors"] = _merge_toggles(cfg["distractors"], config.get("distractors", {}),

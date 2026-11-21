@@ -7,7 +7,7 @@
   "required": ["schema_version", "episode_id", "base_currency", "period_start", "period_end", "timezone", "counts", "rounding", "currency_exponents", "csv_null", "config_version"],
   "properties": {
     "schema_version": {"const": "1.0"},
-    "episode_id": {"type": "string", "pattern": "^EP-[0-9A-HJKMNP-TV-Z]{8}$"},
+    "episode_id": {"type": "string", "minLength": 1},
     "base_currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
     "period_start": {"$ref": "#/$defs/timestamp", "description": "Включительно"},
     "period_end": {"$ref": "#/$defs/timestamp", "description": "Не включительно"},
