@@ -209,8 +209,11 @@ def _work_time(rng, day: date, tz) -> datetime:
     return datetime(day.year, day.month, day.day, rng.randint(9, 18), rng.randint(0, 59), 0, tzinfo=tz)
 
 
-def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
-    """Число документов и целевое число проводок с учётом совместимости диапазонов."""
+def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0, shift=(0, 0)):
+    """Число документов и целевое число проводок с учётом совместимости диапазонов.
+
+    shift=(строки, документы) - поправка цели при повторной сборке, если итог вышел за узкий
+    диапазон (generator.build). Случайные числа берутся те же, меняется только цель."""
     d_lo, d_hi = cfg["size"]["documents"]
     r_lo, r_hi = cfg["size"]["ledger_rows"]
     # Запас под ошибки и отвлекающие случаи вычитается из ВЕРХНЕЙ границы и не возвращается
@@ -226,6 +229,7 @@ def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
         r_hi_eff = max(LEDGER_BOUNDS[0], r_hi - reserve_rows - slack)
     d_hi_eff = max(DOCUMENT_BOUNDS[0], d_hi - reserve_docs)
     docs = rng.randint(min(d_lo, d_hi_eff), d_hi_eff)
+    docs = min(max(docs + shift[1], DOCUMENT_BOUNDS[0]), DOCUMENT_BOUNDS[1])
     while True:
         n_pay = docs * 2 // 5
         n_inv = docs - n_pay
@@ -236,7 +240,9 @@ def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
     # +3: запас на редкие платежи без курсовой разницы (у них на строку меньше)
     lo = max(min(r_lo + 3, r_hi_eff), rows_min)
     hi = max(lo, r_lo + (r_hi_eff - r_lo) * 3 // 4)
-    return n_inv, n_pay, rng.randint(lo, hi)
+    target = rng.randint(lo, hi) + shift[0]
+    # ниже 200 цель может опуститься только при повторной сборке: итог вне пределов кейса не выбирается
+    return n_inv, n_pay, max(rows_min, min(LEDGER_BOUNDS[1], target))
 
 
 def _make_entities(content, ids, archetype, base, foreign, need_foreign=False, need_recoverable=None):
@@ -377,13 +383,15 @@ def _make_payment(content, ids, ctx, draft, inv):
 
 
 def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0, base_small=0,
-                foreign_small=0, foreign_paid=0, foreign_docs=0, recoverable_paid=0) -> History:
+                foreign_small=0, foreign_paid=0, foreign_docs=0, recoverable_paid=0,
+                size_shift=(0, 0)) -> History:
     """small_count — сколько счетов минимум оставить с 1–2 строками (кандидаты в дубли);
     base_small — сколько из них сделать в базовой валюте (под legit_recurring);
     foreign_small — сколько в иностранной (под duplicate_invoice_wrong_fx);
     foreign_paid — сколько оплаченных валютных счетов нужно (под partial_fx_payment_at_cutoff);
     foreign_docs — сколько валютных счетов нужно (под fx_conversion);
-    recoverable_paid — сколько оплаченных счетов в базовой или восстановимой валюте (под payment_allocation)."""
+    recoverable_paid — сколько оплаченных счетов в базовой или восстановимой валюте (под payment_allocation);
+    size_shift — поправка цели (строки, документы) при повторной сборке под узкий диапазон."""
     company = cfg["company"]
     tz = parse_tz(company["timezone"])
     base = company["base_currency"]
@@ -397,7 +405,7 @@ def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0
                               need_foreign=bool(foreign_small or foreign_paid or foreign_docs),
                               need_recoverable=[c for c in foreign if _recoverable_currency(ctx, c)]
                               if foreign_paid else None)
-    n_inv, n_pay, target_rows = plan_sizes(content, cfg, reserve_rows, reserve_docs)
+    n_inv, n_pay, target_rows = plan_sizes(content, cfg, reserve_rows, reserve_docs, size_shift)
     drafts, small = _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count,
                                  base_small, foreign_small, foreign_paid, foreign_docs, recoverable_paid)
 
