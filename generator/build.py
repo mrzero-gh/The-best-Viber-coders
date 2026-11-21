@@ -204,7 +204,8 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
                     + (iplanned["partial_fx_payment_at_cutoff"] + 1 if iplanned["partial_fx_payment_at_cutoff"] else 0),
                     # payment_allocation нужен платёж, сумму которого восстановят по проводке (+1 в запас)
                     recoverable_paid=planned["payment_allocation"] + 1 if planned["payment_allocation"] else 0)
-    dm = make_distractors(h, dist_rng, ids, dplanned)
+    dm = make_distractors(h, dist_rng, ids, dplanned,
+                          keep_foreign=planned["fx_conversion"] + 2 * iplanned["partial_fx_payment_at_cutoff"])
     clean_tables = copy.deepcopy(sorted_tables(h))  # чистая история уже с отвлекающими случаями
     clean_sha = tables_digest(clean_tables)
     inj = inject(h, cfg, errors, ids, planned, used=dm.used, interactions=iplanned)

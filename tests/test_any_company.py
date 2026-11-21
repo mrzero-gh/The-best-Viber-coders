@@ -179,3 +179,17 @@ def test_fx_reserve_counts_interactions(tmp_path):
     gen = json.loads((ep / "private" / "generation.json").read_text(encoding="utf-8"))
     assert gen["errors_injected"]["fx_conversion"] == gen["errors_planned"]["fx_conversion"] == 2
     assert certify_episode(ep)["valid"]
+
+
+# Мало валютных счетов (26-40 документов): отвлекающие случаи и сценарий 1 забирали валютные счета,
+# нужные fx_conversion и дублю с неверным курсом. Конфиги из фазза генератора (seed 339563, 746808)
+@pytest.mark.parametrize("seed", ["339563", "746808"])
+def test_errors_keep_scarce_foreign_invoices(tmp_path, seed):
+    from pathlib import Path
+    cfgs = json.loads((Path(__file__).parent / "fixtures" / "fuzz_foreign_scarce.json").read_text(encoding="utf-8"))
+    ep = generate_episode(int(seed), cfgs[seed], tmp_path)
+    gen = json.loads((ep / "private" / "generation.json").read_text(encoding="utf-8"))
+    for kind in ("errors", "interactions"):
+        for name, n in gen[f"{kind}_planned"].items():
+            assert gen[f"{kind}_injected"][name] >= n, (kind, name)
+    assert certify_episode(ep)["valid"]
