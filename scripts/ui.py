@@ -1505,7 +1505,15 @@ def serve(host: str = "127.0.0.1", port: int = 8080, open_browser: bool = False)
         httpd.server_close()
 
 
+def _utf8_stdio() -> None:
+    """Вывод в UTF-8 и при перенаправлении в pipe на Windows (cp1251 не знает рамок и стрелок)."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def main():
+    _utf8_stdio()
     parser = argparse.ArgumentParser(description="Минималистичный UI для Audit Gym")
     parser.add_argument("--port", type=int, default=8080, help="Порт сервера (по умолчанию 8080)")
     parser.add_argument("--host", default="127.0.0.1", help="Хост сервера")

@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mrzero-gh/The-best-Viber-coders/actions/workflows/ci.yml"><img src="https://github.com/mrzero-gh/The-best-Viber-coders/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-~850%20passed-2F7D4F" alt="Около 850 тестов">
+  <img src="https://img.shields.io/badge/tests-~870%20passed-2F7D4F" alt="Около 870 тестов">
   <img src="https://img.shields.io/badge/python-3.11%2B-14171A" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/docker-без%20сети-14171A" alt="Docker без сети">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6B6F73" alt="MIT"></a>
@@ -35,7 +35,7 @@
 | Random | 0.250 | −0.501 | 3.0 | F1 > 0 только на чистой компании |
 | «Пометить всё» | 0.000 | −1.000 | 2.0 | ловушки есть даже в чистых компаниях |
 
-Проверки как у жюри проходят полностью: 20 векторов matcher и примеры M01–M12, парные проверки P01–P20 (20/20), около 850 тестов в Docker без сети.
+Проверки как у жюри проходят полностью: 20 векторов matcher и примеры M01–M12, парные проверки P01–P20 (20/20), около 870 тестов в Docker без сети.
 
 ## Что внутри эпизода
 

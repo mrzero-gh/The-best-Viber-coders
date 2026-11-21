@@ -828,8 +828,16 @@ def replay_episode(
     return 0
 
 
+def _utf8_stdio() -> None:
+    """Вывод в UTF-8 и при перенаправлении в pipe на Windows (cp1251 не знает рамок и стрелок)."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def main() -> int:
     """Точка входа CLI."""
+    _utf8_stdio()
     parser = argparse.ArgumentParser(
         description="Терминальный просмотрщик траекторий финансового аудитора (Audit Gym Replay)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
