@@ -314,7 +314,7 @@ episodes/<split>/<episode_id>/
 
 `truth.json` (схема `truth.schema.json`): `schema_version`, `episode_id`, `issues[]` (`issue_id`, `type`, `affected_ids`, `expected_amount_minor`, `currency`, `amount_tolerance_minor`, `evidence_sets[][]`, `scenario` или `null`), `distractors[]` (`distractor_id`, `kind`, `record_ids[]`).
 
-`provenance.json`: `episode_id`, `generator_version`, `clean_history_sha256`, `mutations[]` — для каждой ошибки причинное изменение: `{issue_id, type, changes: [{table, record_id, field, before, after}]}`. Его читает `generator.explain`.
+`provenance.json`: `episode_id`, `generator_version`, `clean_history_sha256`, `mutations[]` — для каждой ошибки причинное изменение: `{issue_id, type, changes: [{table, record_id, field, before, after}]}` (его читает `generator.explain`), и `clean_history_diff` — полный обратимый журнал отличий открытых таблиц от чистой истории. По нему `grader.clean_history` восстанавливает книги до внесения ошибок и сверяет их с `clean_history_sha256` и балансом.
 Полный формат и значения служебных полей (`__created__`, `__deleted__`, `__copy_of__`, `allocated_minor:<id>`, `rate_used`): [DATA.md, раздел 3.3](DATA.md#33-формат-provenancejson).
 
 `issue_id` — случайные строки `ISS-XXXXXXXX`; они же служат метками-«канарейками» при поиске утечек.

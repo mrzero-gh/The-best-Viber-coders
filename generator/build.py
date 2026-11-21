@@ -3,6 +3,7 @@
 Запуск: python -m generator.build --seed 42 --out episodes/train [--config путь.json]
 """
 import argparse
+import copy
 import csv
 import hashlib
 import json
@@ -75,15 +76,51 @@ def make_policy(h, tolerance=1) -> dict:
             "amount_tolerance_minor": tolerance}
 
 
-def history_digest(h) -> str:
-    """sha256 открытого содержания истории (для provenance.clean_history_sha256)."""
-    ledger, invoices, payments, fx = sorted_tables(h)
+def tables_digest(tables) -> str:
+    """sha256 четырёх таблиц (ledger, invoices, payments, fx) в порядке sorted_tables."""
+    ledger, invoices, payments, fx = tables
     blob = canonical_dumps({"ledger": ledger, "invoices": invoices, "payments": payments, "fx": fx})
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def history_digest(h) -> str:
+    """sha256 открытого содержания истории (для provenance.clean_history_sha256)."""
+    return tables_digest(sorted_tables(h))
+
+
+TABLE_NAMES = ("ledger", "invoices", "payments", "fx")
+
+
+def record_key(table: str, row: dict) -> str:
+    """ID записи таблицы; у курса ID - ключ FX:<дата>:<валюта>:<база>, как в доказательствах."""
+    if table == "fx":
+        return f"FX:{row['date']}:{row['source_currency']}:{row['target_currency']}"
+    return row[{"ledger": "row_id", "invoices": "invoice_id", "payments": "payment_id"}[table]]
+
+
+def history_diff(clean_tables, final_tables) -> dict:
+    """Полный обратимый журнал: чем итоговые (открытые) таблицы отличаются от чистой истории.
+
+    removed - строки чистой истории целиком (их нет в открытых данных), added - ID новых строк,
+    modified - {id, field, before, after}. Чистая история = открытые данные - added + removed,
+    с before вместо after; её sha256 равен provenance.clean_history_sha256."""
+    diff = {}
+    for name, clean, final in zip(TABLE_NAMES, clean_tables, final_tables):
+        cm = {record_key(name, r): r for r in clean}
+        fm = {record_key(name, r): r for r in final}
+        modified = []
+        for key in sorted(set(cm) & set(fm)):
+            for field in sorted(set(cm[key]) | set(fm[key])):
+                if cm[key].get(field) != fm[key].get(field):
+                    modified.append({"id": key, "field": field,
+                                     "before": cm[key].get(field), "after": fm[key].get(field)})
+        diff[name] = {"removed": [cm[k] for k in sorted(set(cm) - set(fm))],
+                      "added": sorted(set(fm) - set(cm)), "modified": modified}
+    return diff
+
+
 def write_episode(h, cfg, out_dir, seed, id_seed, issues=(), distractors=(), mutations=(),
-                  clean_sha256=None, extra=None) -> Path:
+                  clean_sha256=None, extra=None, clean_diff=None) -> Path:
     ep = Path(out_dir) / h.episode_id
     pub, priv = ep / "public", ep / "private"
     pub.mkdir(parents=True, exist_ok=True)
@@ -103,7 +140,8 @@ def write_episode(h, cfg, out_dir, seed, id_seed, issues=(), distractors=(), mut
                                       "issues": list(issues), "distractors": list(distractors)})
     _write_json(priv / "provenance.json", {
         "episode_id": h.episode_id, "generator_version": GENERATOR_VERSION,
-        "clean_history_sha256": clean_sha256 or history_digest(h), "mutations": list(mutations)})
+        "clean_history_sha256": clean_sha256 or history_digest(h), "mutations": list(mutations),
+        "clean_history_diff": clean_diff if clean_diff is not None else history_diff(*[sorted_tables(h)] * 2)})
     hashes = {name: _sha256(pub / name) for name in PUBLIC_FILES}
     fingerprint = hashlib.sha256(canonical_dumps(hashes).encode("utf-8")).hexdigest()
     _write_json(priv / "generation.json", {
@@ -151,13 +189,16 @@ def generate_episode(seed: int, config: dict, out_dir: "Path", id_seed=None) -> 
                     reserve_docs=n_dup + n_dst, small_count=2 * n_dup + dplanned["legit_recurring"],
                     base_small=dplanned["legit_recurring"], foreign_small=2 * n_dfx)
     dm = make_distractors(h, dist_rng, ids, dplanned)
-    clean_sha = history_digest(h)  # чистая история уже с отвлекающими случаями: они законны
+    clean_tables = copy.deepcopy(sorted_tables(h))  # чистая история уже с отвлекающими случаями
+    clean_sha = tables_digest(clean_tables)
     inj = inject(h, cfg, errors, ids, planned, used=dm.used, interactions=iplanned)
+    clean_diff = history_diff(clean_tables, sorted_tables(h))
     injected = {t: sum(1 for i in inj.issues if i["type"] == t) for t in planned}
     dinjected = {k: sum(1 for x in dm.items if x["kind"] == k) for k in dplanned}
     # сценарий засчитан, если обе его ошибки внесены (у каждой scenario = имя)
     iinjected = {s: sum(1 for i in inj.issues if i["scenario"] == s) // 2 for s in iplanned}
     return write_episode(h, cfg, out_dir, seed, id_seed, inj.issues, dm.items, inj.mutations, clean_sha,
+                         clean_diff=clean_diff,
                          extra={"errors_planned": planned, "errors_injected": injected,
                                 "interactions_planned": iplanned, "interactions_injected": iinjected,
                                 "distractors_planned": dplanned, "distractors_injected": dinjected})
