@@ -41,7 +41,7 @@ print(json.dumps(out, sort_keys=True, ensure_ascii=False))
 
 
 def _run(seed: int, hashseed: str) -> dict:
-    env = dict(os.environ, PYTHONHASHSEED=hashseed)
+    env = dict(os.environ, PYTHONHASHSEED=hashseed, PYTHONIOENCODING="utf-8")
     res = subprocess.run([sys.executable, "-c", _SCRIPT, str(seed)], cwd=str(ROOT), env=env,
                          capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert res.returncode == 0, res.stderr[-2000:]

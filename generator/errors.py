@@ -11,7 +11,13 @@ from generator.config import ERROR_TYPES, INTERACTIONS
 from generator.history import fmt_ts, post_invoice, post_payment
 from generator.rng import IdFactory
 
-TOLERANCE_MINOR = 1
+# Допуск суммы по типам (правила жюри: по умолчанию τ=0, τ>0 только при документированном
+# округлении). duplicate_invoice и period_cutoff - сумма документа как есть, округления нет.
+# fx_conversion - разница пересчёта в базовую валюту после округления ROUND_HALF_EVEN;
+# payment_allocation - разнесённая сумма валютного платежа восстанавливается из проводки
+# в базовой валюте, это тоже округление. Значения публикуются в policy.json.
+TOLERANCE_BY_TYPE = {"duplicate_invoice": 0, "payment_allocation": 1, "fx_conversion": 1,
+                     "period_cutoff": 0}
 MIN_FX_GAP_MINOR = 100  # расхождение FX много больше допуска: не путается с округлением
 
 
@@ -69,7 +75,7 @@ class Injector:
         self.issues.append({
             "issue_id": iid, "type": kind, "affected_ids": sorted(affected),
             "expected_amount_minor": amount, "currency": currency,
-            "amount_tolerance_minor": TOLERANCE_MINOR,
+            "amount_tolerance_minor": TOLERANCE_BY_TYPE[kind],
             "evidence_sets": [sorted(s) for s in evidence_sets], "scenario": scenario})
         self.mutations.append({"issue_id": iid, "type": kind, "changes": changes})
         return iid
@@ -91,6 +97,12 @@ class Injector:
         if not cands:
             return None
         src = self.rng.choice(cands)
+        if foreign_only and not self._fx_gap_possible(src):
+            # под дубль с неверным курсом: у малого счёта в дешёвой валюте даже 5 % искажения не дают
+            # заметного расхождения. Перевыбор только в этом случае: удачные выборы не меняются
+            feasible = [inv for inv in cands if self._fx_gap_possible(inv)]
+            if feasible:
+                src = self.rng.choice(feasible)
         src_day = ctx.local_date(src["issued_at"])
         delta = self.rng.randint(0, max(0, min(5, (end_day - src_day).days - 1)))
         day = src_day + timedelta(days=delta)
@@ -119,8 +131,16 @@ class Injector:
         factor = ctx.rate(pay["currency"], ctx.local_date(inv["issued_at"]))
         return factor * Decimal(10) ** (ctx.exps[ctx.base] - ctx.exps[pay["currency"]]) >= 1
 
-    def _partial(self, total):
-        """Сколько разнесено в книге: ничего (1 из 4) или 20–80 %, всегда меньше total."""
+    allocation_variant = "any"  # errors.payment_allocation.variant: any | missing | partial
+    pending_dfx = 0  # сколько дублей с неверным курсом ещё впереди (им нужны короткие валютные счета)
+
+    def _partial(self, total, variant="any"):
+        """Сколько разнесено в книге: ничего (1 из 4) или 20–80 %, всегда меньше total.
+        variant="missing" - всегда ничего, "partial" - всегда часть (D09–D11 у жюри)."""
+        if variant == "missing":
+            return 0
+        if variant == "partial":
+            return max(1, min(total * self.rng.randint(20, 80) // 100, total - 1)) if total >= 2 else 0
         if self.rng.randint(1, 4) == 1:
             return 0
         return min(total * self.rng.randint(20, 80) // 100, total - 1)
@@ -137,13 +157,28 @@ class Injector:
         """Валютный платёж с датой после конца периода проведён в периоде и разнесён частично.
         Две ошибки: period_cutoff [payment] и payment_allocation [invoice, payment]."""
         h, ctx = self.h, self.h.ctx
-        cands = [p for p in h.payments if p["amount_minor"] > 0 and len(p["invoice_refs"]) == 1
-                 and p["currency"] != ctx.base and self._free(p) and self._recoverable(p)]
+        foreign = [p for p in h.payments if p["amount_minor"] > 0 and len(p["invoice_refs"]) == 1
+                   and p["currency"] != ctx.base and self._free(p)]
+        cands = [p for p in foreign if self._recoverable(p)]
+        # 1 minor валюты дешевле 1 minor базовой (база USD, валюта KZT): частичную оплату по
+        # проводке не восстановить, а полный пропуск (ничего не разнесено) восстанавливается точно
+        missing_only = not cands
+        if missing_only:
+            cands = foreign
         if not cands:
             return None
         pay = self.rng.choice(cands)
+        small = set(h.small_invoice_ids)
+        if self.pending_dfx and pay["invoice_refs"][0]["invoice_id"] in small:
+            # короткий валютный счёт нужен дублю с неверным курсом: если других таких не хватит,
+            # берём платёж по обычному счёту (перевыбор только в этом случае)
+            spare = [i for i in h.invoices if i["invoice_id"] in small and i["currency"] != ctx.base
+                     and i["invoice_id"] != pay["invoice_refs"][0]["invoice_id"] and self._free(i)]
+            other = [p for p in cands if p["invoice_refs"][0]["invoice_id"] not in small]
+            if len(spare) < self.pending_dfx and other:
+                pay = self.rng.choice(other)
         ref = pay["invoice_refs"][0]
-        allocated = self._partial(ref["amount_minor"])
+        allocated = 0 if missing_only else self._partial(ref["amount_minor"])
         name = "partial_fx_payment_at_cutoff"
         cut = self.period_cutoff(scenario=name, doc=pay, after_end=True,
                                  allocated={ref["invoice_id"]: allocated})
@@ -158,6 +193,7 @@ class Injector:
         """Дубль валютного счёта, ещё и пересчитанный по неверному курсу.
         Две ошибки: duplicate_invoice [оригинал, дубль] и fx_conversion [дубль]."""
         name = "duplicate_invoice_wrong_fx"
+        self.pending_dfx = max(0, self.pending_dfx - 1)
         made = self.duplicate_invoice(scenario=name, foreign_only=True)
         if made is None:
             return None
@@ -173,18 +209,25 @@ class Injector:
         """По выписке платёж закрывает счёт целиком, а в книге на 1200 разнесена часть или ничего;
         остаток — на 2900. Возвращает issue_id или None."""
         h, ctx = self.h, self.h.ctx
+        missing_only = False
         if payment is None:
-            cands = [p for p in h.payments
-                     if p["payment_id"] not in self.used and p["amount_minor"] > 0
-                     and len(p["invoice_refs"]) == 1
-                     and p["invoice_refs"][0]["invoice_id"] not in self.used and self._recoverable(p)]
+            free = [p for p in h.payments
+                    if p["payment_id"] not in self.used and p["amount_minor"] > 0
+                    and len(p["invoice_refs"]) == 1 and p["invoice_refs"][0]["invoice_id"] not in self.used]
+            cands = [p for p in free if self._recoverable(p)]
+            if not cands and self.allocation_variant != "partial":
+                # платежи только в валюте дешевле базовой (база KWD, валюта UZS): частичную оплату
+                # не восстановить, а полный пропуск (по счёту нет строки 1200) восстанавливается точно
+                cands, missing_only = free, True
             if not cands:
                 return None
             payment = self.rng.choice(cands)
         pid = payment["payment_id"]
         ref = payment["invoice_refs"][0]
         total = ref["amount_minor"]
-        allocated = self._partial(total)
+        # вариант из конфига относится к самостоятельной ошибке, не к совмещённому сценарию
+        allocated = 0 if missing_only else self._partial(
+            total, self.allocation_variant if scenario is None else "any")
         by_id = {inv["invoice_id"]: inv for inv in h.invoices}
         old = [r for r in h.ledger if r["payment_id"] == pid]
         h.ledger = [r for r in h.ledger if r["payment_id"] != pid]
@@ -242,6 +285,16 @@ class Injector:
 
     # ---------- fx_conversion ----------
 
+    def _fx_gap_possible(self, inv):
+        """Искажение курса на 5 % (максимум _wrong_rate) даёт расхождение с запасом больше
+        MIN_FX_GAP_MINOR: запас 20 % на дрейф курса за 0–5 дней до даты дубля."""
+        ctx = self.h.ctx
+        day = ctx.local_date(inv["issued_at"])
+        rate = ctx.rate(inv["currency"], day)
+        gap = abs(ctx.convert(inv["total_minor"], inv["currency"], day, rate * Decimal("1.05"))
+                  - ctx.convert(inv["total_minor"], inv["currency"], day))
+        return gap * 5 >= MIN_FX_GAP_MINOR * 6
+
     def _wrong_rate(self, cur, day):
         """Курс другой даты (±1–5 дней) или искажённый на 1–5 %. Возвращает (курс, описание)."""
         ctx = self.h.ctx
@@ -260,14 +313,25 @@ class Injector:
             invs = [i for i in h.invoices if i["currency"] != ctx.base and self._free(i)]
             pays = [p for p in h.payments if p["currency"] != ctx.base and p["amount_minor"] > 0
                     and len(p["invoice_refs"]) == 1 and self._free(p)]
-            doc = self._pick_doc(invs, pays)
-            if doc is None:
-                return None
+            # документ с малой суммой может не дать заметного расхождения (дешёвая валюта при
+            # дорогой базе): тогда берём следующий; первый удачный выбор тратит rng как раньше
+            while True:
+                doc = self._pick_doc(invs, pays)
+                if doc is None:
+                    return None
+                made = self._fx_conversion_doc(doc, scenario)
+                if made is not None:
+                    return made
+                (pays if "payment_id" in doc else invs).remove(doc)
+        return self._fx_conversion_doc(doc, scenario)
+
+    def _fx_conversion_doc(self, doc, scenario):
+        h, ctx = self.h, self.h.ctx
         is_pay = "payment_id" in doc
         amount = doc["amount_minor"] if is_pay else doc["total_minor"]
         day = ctx.local_date(doc["timestamp"] if is_pay else doc["issued_at"])
         correct = ctx.convert(amount, doc["currency"], day)
-        for _ in range(8):
+        for _ in range(32):  # больше попыток меняет только случаи, где 8 не хватало
             rate, how = self._wrong_rate(doc["currency"], day)
             posted = ctx.convert(amount, doc["currency"], day, rate)
             if abs(posted - correct) >= MIN_FX_GAP_MINOR:
@@ -359,6 +423,8 @@ def inject(history, cfg, rng, ids, counts, used=(), interactions=None) -> Inject
     """
     inj = Injector(history, rng, ids)
     inj.used = set(used)
+    inj.allocation_variant = cfg["errors"]["payment_allocation"].get("variant", "any")
+    inj.pending_dfx = (interactions or {}).get("duplicate_invoice_wrong_fx", 0)
     # сначала сценарии: им нужны особые кандидаты (валютные платежи и короткие валютные счета)
     for name in INTERACTIONS:
         for _ in range((interactions or {}).get(name, 0)):

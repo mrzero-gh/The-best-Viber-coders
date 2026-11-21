@@ -4,11 +4,14 @@
 """
 import argparse
 import json
+import re
 from pathlib import Path
 
 from common.jsonio import canonical_dumps
+from grader import clean_history as history_checks
 from grader.evidence import PublicEvidence, read_public, require
 from grader.history_proof import verify_history
+from grader.truth_consistency import check_consistency, require_duplicate_coverage
 from grader.validation import validate_truth
 
 
@@ -43,9 +46,9 @@ def _prove(data: PublicEvidence, kind: str, affected: list[str], evidence: set[s
         declared = data.allocations(payment)
         require(invoice["invoice_id"] in declared, "invoice absent from payment references")
         book = data.book(payment)
-        posted = {identifier: data.source_amount(-book.get(("1200", identifier), 0),
-                  payment["currency"], data.invoices[identifier]["issued_at"]) for identifier in declared}
-        require(data.payment_book(payment, posted) == book, "unallocated remainder or FX postings are inconsistent")
+        # Отсутствие 1200 означает ноль в базовой валюте, но не обязательно
+        # ноль исходной суммы: ненулевое разнесение могло округлиться до нуля.
+        posted = data.recover_allocations(payment)
         amount = declared[invoice["invoice_id"]] - posted[invoice["invoice_id"]]
         require(amount > 0, "no missing payment allocation")
         return amount, payment["currency"]
@@ -153,6 +156,7 @@ def _verify_final_books(data: PublicEvidence, truth: dict) -> None:
     Баланс и точный replay сами по себе не исключают лишнюю ошибку в том же
     документе: например, неверный курс внутри мутации period_cutoff.
     """
+    require_duplicate_coverage(data, truth["issues"])
     by_document = {}
     for item in truth["issues"]:
         for identifier in item["affected_ids"]:
@@ -170,14 +174,13 @@ def _verify_final_books(data: PublicEvidence, truth: dict) -> None:
             entities = {doc["entity_id"]}
         else:
             allocations = data.allocations(doc)
+            recovered = data.recover_allocations(doc) if "payment_allocation" in kinds else {}
             for item in issues:
                 if item["type"] != "payment_allocation":
                     continue
                 for invoice_id in set(item["affected_ids"]) - {identifier}:
                     require(invoice_id in allocations, "allocation issue has an unrelated invoice")
-                    allocations[invoice_id] = data.source_amount(
-                        -book.get(("1200", invoice_id), 0), doc["currency"],
-                        data.invoices[invoice_id]["issued_at"])
+                    allocations[invoice_id] = recovered[invoice_id]
             expected = data.payment_book(doc, allocations)
             if "fx_conversion" in kinds:
                 # A nonzero unallocated remainder needs proof of the applied
@@ -199,19 +202,46 @@ def _verify_final_books(data: PublicEvidence, truth: dict) -> None:
                         for row in data.rows(doc)), "undeclared period discrepancy in final document")
 
 
-def certify(public: dict, truth: dict, *, provenance=None, clean_history=None,
-            require_history: bool = False) -> dict:
+def _history_report(public, truth, provenance, snapshot):
+    """Основной формат main — обратимый net diff; снимок ver3 также поддержан."""
+    legacy = verify_history(public, truth, provenance, snapshot) if snapshot is not None else None
+    if provenance is None:
+        return legacy or {"status": "not_checked", "valid": None, "reason": "provenance not provided"}
+    if not isinstance(provenance, dict):
+        return {"status": "failed", "valid": False, "errors": ["provenance must be an object"]}
+    if (type(provenance.get("episode_id")) is not str or
+            provenance["episode_id"] != public["manifest"]["episode_id"] or
+            type(provenance.get("clean_history_sha256")) is not str or
+            re.fullmatch(r"[0-9a-f]{64}", provenance["clean_history_sha256"]) is None or
+            type(provenance.get("mutations")) is not list or
+            any(type(item) is not dict for item in provenance["mutations"])):
+        return {"status": "failed", "valid": False, "errors": ["malformed provenance metadata"]}
+    if "clean_history_diff" not in provenance and legacy is not None:
+        return legacy
+    report = history_checks.check(public, provenance)
+    report["valid"] = {"ok": True, "failed": False, "not_checked": None}[report["status"]]
+    if legacy is not None and legacy["valid"] is not True:
+        report.update(status="failed", valid=False, legacy_proof=legacy)
+    return report
+
+
+def certify(public: dict, truth: dict, provenance=None, *, clean_history=None,
+            require_history: bool | None = None) -> dict:
     """Независимо проверяет evidence и, при наличии входов A, исходную историю.
 
-    Старый API без закрытого снимка проверяет только публичные доказательства.
+    API без закрытого журнала проверяет только публичные доказательства.
+    Если журнал передан, по умолчанию требуется полная проверка; явный False
+    разрешает частичный режим, но не игнорирует повреждённое доказательство.
     Для обязательной проверки истории задайте require_history=True; fully_verified
-    никогда не равен True без проверенного снимка и полного журнала изменений.
+    никогда не равен True без проверенной исходной истории и соответствия truth.
     """
+    if require_history is None:
+        require_history = provenance is not None or clean_history is not None
     validate_truth(truth, public["manifest"]["episode_id"])
     report = {"schema_version": "1.0", "episode_id": truth["episode_id"], "valid": False,
               "issues": [], "distractors": [], "public_errors": [],
               "history_verification_required": require_history, "fully_verified": False,
-              "clean_history_balance": verify_history(public, truth, provenance, clean_history)}
+              "clean_history_balance": _history_report(public, truth, provenance, clean_history)}
     try:
         data = PublicEvidence(public)
     except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
@@ -250,6 +280,11 @@ def certify(public: dict, truth: dict, *, provenance=None, clean_history=None,
             _verify_final_books(data, truth)
         except (KeyError, ValueError, TypeError, ArithmeticError) as exc:
             report["public_errors"].append(str(exc))
+        if isinstance(provenance, dict) and "clean_history_diff" in provenance:
+            consistency = check_consistency(public, truth, provenance)
+            report["truth_consistency"] = consistency
+            if not consistency["valid"]:
+                report["public_errors"].extend(consistency["errors"])
     evidence_valid = (not report["public_errors"] and
                       all(item["valid"] for item in report["issues"] + report["distractors"]))
     history_valid = report["clean_history_balance"]["valid"]
@@ -263,7 +298,7 @@ def certify(public: dict, truth: dict, *, provenance=None, clean_history=None,
     return report
 
 
-def certify_episode(episode_dir: str | Path, *, require_history: bool = False) -> dict:
+def certify_episode(episode_dir: str | Path, *, require_history: bool | None = None) -> dict:
     """Читает закрытые доказательства, но проверяет их, а не доверяет журналу."""
     episode = Path(episode_dir)
     public = read_public(episode / "public")

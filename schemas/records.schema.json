@@ -109,7 +109,10 @@
           "type": "object", "additionalProperties": false, "required": ["mode", "apply"],
           "properties": {"mode": {"enum": ["ROUND_HALF_EVEN"]}, "apply": {"const": "after_conversion_to_target_exponent"}}
         },
-        "amount_tolerance_minor": {"type": "integer", "minimum": 0}
+        "amount_tolerance_minor": {"type": "integer", "minimum": 0},
+        "amount_tolerance_minor_by_type": {
+          "type": "object", "additionalProperties": {"type": "integer", "minimum": 0}
+        }
       }
     }
   }

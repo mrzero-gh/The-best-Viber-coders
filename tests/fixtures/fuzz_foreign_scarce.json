@@ -1,0 +1,205 @@
+{
+ "339563": {
+  "config_version": "fuzz-v1",
+  "company": {
+   "archetype": "distributor",
+   "base_currency": "USD",
+   "timezone": "+01:00",
+   "foreign_currencies": [
+    "JPY",
+    "CNY",
+    "EUR",
+    "UZS",
+    "GBP",
+    "KGS"
+   ]
+  },
+  "size": {
+   "ledger_rows": [
+    1006,
+    1233
+   ],
+   "documents": [
+    29,
+    33
+   ]
+  },
+  "errors": {
+   "duplicate_invoice": {
+    "enabled": true,
+    "count": [
+     0,
+     2
+    ]
+   },
+   "payment_allocation": {
+    "enabled": false,
+    "count": [
+     1,
+     3
+    ]
+   },
+   "fx_conversion": {
+    "enabled": true,
+    "count": [
+     0,
+     3
+    ]
+   },
+   "period_cutoff": {
+    "enabled": false,
+    "count": [
+     3,
+     3
+    ]
+   }
+  },
+  "interactions": {
+   "partial_fx_payment_at_cutoff": {
+    "enabled": false,
+    "count": [
+     2,
+     2
+    ]
+   },
+   "duplicate_invoice_wrong_fx": {
+    "enabled": false,
+    "count": [
+     1,
+     2
+    ]
+   }
+  },
+  "distractors": {
+   "split_payment": {
+    "enabled": true,
+    "count": [
+     1,
+     2
+    ]
+   },
+   "refund": {
+    "enabled": true,
+    "count": [
+     2,
+     3
+    ]
+   },
+   "legit_recurring": {
+    "enabled": true,
+    "count": [
+     1,
+     3
+    ]
+   },
+   "late_evening_local": {
+    "enabled": false,
+    "count": [
+     1,
+     1
+    ]
+   }
+  },
+  "clean": false,
+  "max_errors": 12
+ },
+ "746808": {
+  "config_version": "fuzz-v1",
+  "company": {
+   "archetype": "distributor",
+   "base_currency": "KWD",
+   "timezone": "+01:00",
+   "foreign_currencies": [
+    "EUR"
+   ]
+  },
+  "size": {
+   "ledger_rows": [
+    1271,
+    1363
+   ],
+   "documents": [
+    26,
+    40
+   ]
+  },
+  "errors": {
+   "duplicate_invoice": {
+    "enabled": true,
+    "count": [
+     0,
+     1
+    ]
+   },
+   "payment_allocation": {
+    "enabled": true,
+    "count": [
+     0,
+     1
+    ]
+   },
+   "fx_conversion": {
+    "enabled": true,
+    "count": [
+     1,
+     3
+    ]
+   },
+   "period_cutoff": {
+    "enabled": false,
+    "count": [
+     1,
+     3
+    ]
+   }
+  },
+  "interactions": {
+   "partial_fx_payment_at_cutoff": {
+    "enabled": true,
+    "count": [
+     1,
+     2
+    ]
+   },
+   "duplicate_invoice_wrong_fx": {
+    "enabled": true,
+    "count": [
+     1,
+     1
+    ]
+   }
+  },
+  "distractors": {
+   "split_payment": {
+    "enabled": false,
+    "count": [
+     2,
+     3
+    ]
+   },
+   "refund": {
+    "enabled": true,
+    "count": [
+     1,
+     3
+    ]
+   },
+   "legit_recurring": {
+    "enabled": true,
+    "count": [
+     1,
+     3
+    ]
+   },
+   "late_evening_local": {
+    "enabled": true,
+    "count": [
+     0,
+     1
+    ]
+   }
+  },
+  "clean": false,
+  "max_errors": 6
+ }
+}

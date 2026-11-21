@@ -19,6 +19,20 @@ def plan_distractors(cfg, rng) -> dict:
     return counts
 
 
+def cap_distractors(counts, min_docs, n_errors) -> dict:
+    """Мало документов: заказанные ошибки важнее отвлекающих случаев. Бюджет от нижней границы
+    size.documents: ошибка занимает около 1,5 документа, отвлекающий случай - около 2 (замер:
+    12 ошибок на 20-30 документах без ограничения теряли до трети ошибок). Лишние случаи
+    снимаются по одному с самого частого вида. При настройках по умолчанию и в эпизодах
+    репозитория (от 30 документов, до 10 ошибок) ограничение не срабатывает."""
+    budget = max(0, (min_docs - 3 * n_errors // 2) // 2)
+    counts = dict(counts)
+    while sum(counts.values()) > budget:
+        kind = max(DISTRACTORS, key=lambda k: counts[k])
+        counts[kind] -= 1
+    return counts
+
+
 class DistractorMaker(Injector):
     """Пользуется помощниками Injector (_free, _linked, _repost) и общим множеством used."""
 
@@ -47,6 +61,24 @@ class DistractorMaker(Injector):
             return None
         return day + timedelta(days=self.rng.randint(1, min(max_days, room)))
 
+    keep_foreign = 0  # сколько валютных счетов нужно ошибкам (fx_conversion, сценарий 1)
+
+    def _foreign_plenty(self) -> bool:
+        """Свободных валютных счетов с запасом. Считается один раз на отбор кандидатов: пока
+        отбор идёт, состояние не меняется (раньше пересчёт на каждый документ - O(n²))."""
+        if not self.keep_foreign:
+            return True
+        ctx = self.h.ctx
+        small = set(self.h.small_invoice_ids)
+        free = sum(1 for i in self.h.invoices if i["currency"] != ctx.base
+                   and i["invoice_id"] not in small and self._free(i))
+        return free > self.keep_foreign + 2  # запас 2: столько же, сколько при обычных размерах хватало
+
+    def _spare(self, doc, plenty: bool) -> bool:
+        """Валютных счетов мало: отвлекающие случаи берут документы в базовой валюте, чтобы валютные
+        остались ошибкам (ошибки важнее). Пока валютных счетов с запасом, выбор прежний."""
+        return plenty or doc["currency"] == self.h.ctx.base
+
     def _reserved(self, doc):
         """Короткие счета оставлены дублям (в том числе валютным): отвлекающие случаи их не берут."""
         small = set(self.h.small_invoice_ids)
@@ -55,8 +87,10 @@ class DistractorMaker(Injector):
         return doc["invoice_id"] in small
 
     def _single_payments(self):
+        plenty = self._foreign_plenty()
         return [p for p in self.h.payments if p["amount_minor"] > 0 and len(p["invoice_refs"]) == 1
-                and self._free(p) and not self._reserved(p) and self._later_day(p["timestamp"], 5)]
+                and self._free(p) and not self._reserved(p) and self._later_day(p["timestamp"], 5)
+                and self._spare(p, plenty)]
 
     def _new_payment(self, ts, currency, amount, invoice_id, ref_amount):
         pay = {"doc_id": self.ids.new("DOC"), "payment_id": self.ids.new("PAY"), "timestamp": fmt_ts(ts),
@@ -72,20 +106,25 @@ class DistractorMaker(Injector):
         """Счёт закрыт двумя платежами; каждый разнесён полностью, сумма = сумме счёта."""
         ctx = self.h.ctx
         cands = self._single_payments()
-        if not cands:
-            return
-        pay = self.rng.choice(cands)
-        ref = pay["invoice_refs"][0]
-        inv = self._by_id()[ref["invoice_id"]]
-        total, day = ref["amount_minor"], ctx.local_date(inv["issued_at"])
-        full = ctx.convert(total, pay["currency"], day)
-        for _ in range(20):  # части подбираются так, чтобы 1200 по счёту закрылся без остатка
-            part = total * self.rng.randint(30, 70) // 100
-            if 0 < part < total and (ctx.convert(part, pay["currency"], day)
-                                     + ctx.convert(total - part, pay["currency"], day)) == full:
-                break
-        else:
-            return
+        while True:
+            if not cands:
+                return
+            pay = self.rng.choice(cands)
+            ref = pay["invoice_refs"][0]
+            inv = self._by_id()[ref["invoice_id"]]
+            total, day = ref["amount_minor"], ctx.local_date(inv["issued_at"])
+            full = ctx.convert(total, pay["currency"], day)
+            for _ in range(20):  # части подбираются так, чтобы 1200 по счёту закрылся без остатка
+                part = total * self.rng.randint(30, 70) // 100
+                if 0 < part < total and (ctx.convert(part, pay["currency"], day)
+                                         + ctx.convert(total - part, pay["currency"], day)) == full:
+                    break
+            else:
+                # округление дешёвой валюты к дорогой базе не сошлось: берём другой платёж
+                # (первый удачный выбор тратит rng как раньше)
+                cands = [c for c in cands if c is not pay]
+                continue
+            break
         pay["amount_minor"] = part
         pay["invoice_refs"] = [{"invoice_id": inv["invoice_id"], "amount_minor": part}]
         self._repost(pay)
@@ -145,8 +184,11 @@ class DistractorMaker(Injector):
         """Документ в последний день периода в 23:xx по местному времени: он в периоде."""
         h, ctx = self.h, self.h.ctx
         paid = {r["invoice_id"] for p in h.payments for r in p["invoice_refs"]}
-        invs = [i for i in h.invoices if i["invoice_id"] not in paid and self._free(i) and not self._reserved(i)]
-        pays = [p for p in h.payments if p["amount_minor"] > 0 and self._free(p) and not self._reserved(p)]
+        plenty = self._foreign_plenty()
+        invs = [i for i in h.invoices if i["invoice_id"] not in paid and self._free(i) and not self._reserved(i)
+                and self._spare(i, plenty)]
+        pays = [p for p in h.payments if p["amount_minor"] > 0 and self._free(p) and not self._reserved(p)
+                and self._spare(p, plenty)]
         doc = self._pick_doc(invs, pays)
         if doc is None:
             return
@@ -162,8 +204,9 @@ class DistractorMaker(Injector):
         self._item("late_evening_local", [self._doc_key(doc)])
 
 
-def make_distractors(history, rng, ids, counts) -> DistractorMaker:
+def make_distractors(history, rng, ids, counts, keep_foreign=0) -> DistractorMaker:
     dm = DistractorMaker(history, rng, ids)
+    dm.keep_foreign = keep_foreign
     for kind in DISTRACTORS:
         for _ in range(counts[kind]):
             getattr(dm, kind)()

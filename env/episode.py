@@ -85,6 +85,44 @@ def load_public(episode_dir) -> Episode:
     )
 
 
+def _published_tolerances(policy, issue_type) -> list:
+    """Допуски, опубликованные в policy для типа: общий и по типу (что есть и корректно)."""
+    found = []
+    if not isinstance(policy, dict):
+        return found
+    by_type = policy.get("amount_tolerance_minor_by_type")
+    for value in (policy.get("amount_tolerance_minor"),
+                  by_type.get(issue_type) if isinstance(by_type, dict) else None):
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            found.append(value)
+    return found
+
+
+def apply_policy_tolerance(truth, policy):
+    """τ каждой ошибки = минимум из truth и опубликованного в policy (правила жюри: τ задан
+    заранее и публично). Так фикстура с τ=0 в policy не станет мягче из-за truth, и наоборот.
+    Структуру не проверяет: битый truth дальше отклонит validate_truth."""
+    if not isinstance(truth, dict) or not isinstance(truth.get("issues"), list):
+        return truth
+    for issue in truth["issues"]:
+        if not isinstance(issue, dict):
+            continue
+        tau = issue.get("amount_tolerance_minor")
+        caps = _published_tolerances(policy, issue.get("type"))
+        if caps and isinstance(tau, int) and not isinstance(tau, bool):
+            issue["amount_tolerance_minor"] = min([tau, *caps])
+    return truth
+
+
 def load_truth(episode_dir) -> dict:
-    """Читает private/truth.json. Только для серверной стороны."""
-    return _read_json(Path(episode_dir) / "private" / "truth.json")
+    """Читает private/truth.json и применяет допуск из public/policy.json. Только для сервера."""
+    ep = Path(episode_dir)
+    truth = _read_json(ep / "private" / "truth.json")
+    policy_path = ep / "public" / "policy.json"
+    if policy_path.exists():
+        try:
+            policy = _read_json(policy_path)
+        except ValueError:
+            policy = None  # битый policy отклонит load_public
+        truth = apply_policy_tolerance(truth, policy)
+    return truth

@@ -150,11 +150,8 @@ class PublicEvidence:
             ctx.prec = max(34, len(str(abs(amount))) + len(factor.as_tuple().digits) + 8)
             return int((Decimal(amount) * factor).to_integral_value(rounding=ROUND_HALF_EVEN))
 
-    def source_amount(self, base_amount: int, currency: str, timestamp: str) -> int:
-        """Восстанавливает сумму только при однозначной обратной конвертации.
-
-        При потере точности нельзя брать сумму из truth и выдавать её за доказательство.
-        """
+    def source_amount_bounds(self, base_amount: int, currency: str, timestamp: str) -> tuple[int, int]:
+        """Exact integer preimage of ROUND_HALF_EVEN, including/excluding tie endpoints."""
         require(base_amount >= 0, "negative posted allocation")
         factor = Fraction(self.factor(currency, timestamp))
         lower = (Fraction(base_amount) - Fraction(1, 2)) / factor
@@ -165,8 +162,51 @@ class PublicEvidence:
             low += 1
         if high >= low and self.convert(high, currency, timestamp) != base_amount:
             high -= 1
+        require(low <= high, "posted amount has no source amount under the rounding policy")
+        return low, high
+
+    def source_amount(self, base_amount: int, currency: str, timestamp: str) -> int:
+        """Восстанавливает сумму только при однозначной обратной конвертации."""
+        low, high = self.source_amount_bounds(base_amount, currency, timestamp)
         require(low == high, "allocation cannot be uniquely recovered after rounding")
         return low
+
+    def recover_allocations(self, payment: dict) -> dict[str, int]:
+        """Recover allocations jointly from receivables and the unallocated remainder.
+
+        Every receivable constrains one integer amount, while account 2900
+        constrains their sum at the payment-date rate. Intersect these intervals
+        without enumerating their values; another date/rate can make a value
+        unique even when its receivable posting alone cannot do so.
+        """
+        require(payment["amount_minor"] > 0, "allocation issue requires an incoming payment")
+        declared, book = self.allocations(payment), self.book(payment)
+        bounds = {}
+        for identifier, amount in declared.items():
+            low, high = self.source_amount_bounds(-book.get(("1200", identifier), 0),
+                                                  payment["currency"], self.invoices[identifier]["issued_at"])
+            low, high = max(0, low), min(amount, high)
+            require(low <= high, "posted allocation is outside its declared range")
+            bounds[identifier] = (low, high)
+        remainder_low, remainder_high = self.source_amount_bounds(
+            -book.get(("2900", None), 0), payment["currency"], payment["timestamp"])
+        remainder_low = max(0, remainder_low)
+        remainder_high = min(payment["amount_minor"], remainder_high)
+        require(remainder_low <= remainder_high, "unallocated remainder is outside the payment amount")
+        total_low = sum(low for low, _ in bounds.values())
+        total_high = sum(high for _, high in bounds.values())
+        sum_low = max(total_low, payment["amount_minor"] - remainder_high)
+        sum_high = min(total_high, payment["amount_minor"] - remainder_low)
+        require(sum_low <= sum_high, "receivables and unallocated remainder are inconsistent")
+        allocated = {}
+        for identifier, (low, high) in bounds.items():
+            feasible_low = max(low, sum_low - (total_high - high))
+            feasible_high = min(high, sum_high - (total_low - low))
+            require(feasible_low == feasible_high, "allocation cannot be uniquely recovered after rounding")
+            allocated[identifier] = feasible_low
+        require(self.payment_book(payment, allocated) == book,
+                "unallocated remainder or FX postings are inconsistent")
+        return allocated
 
     def rows(self, doc: dict) -> list[dict]:
         if "payment_id" in doc:

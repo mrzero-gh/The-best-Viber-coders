@@ -230,6 +230,19 @@ def test_ambiguous_truth_still_requires_unique_issue_ids():
         run([], truth(a, b))
 
 
+@pytest.mark.parametrize("bad", [None, 7, True, ["fx_conversion"]])
+def test_non_string_type_is_structural_error(bad):
+    res = run([dict(F, type=bad)], truth(A))
+    assert not res["valid"] and res["reward"] == -1
+
+
+@pytest.mark.parametrize("odd", ["", "x" * 65])
+def test_empty_or_long_string_type_is_fp(odd):
+    """Правило 8: структурно верный вывод с неверным type - FP (строка любой длины - строка)."""
+    res = run([dict(F, type=odd)], truth(A))
+    assert res["valid"] and (res["metrics"]["tp"], res["metrics"]["fp"], res["metrics"]["fn"]) == (0, 1, 1)
+
+
 def test_m11_deterministic_tie_break():
     a = _edge_issue("ISS-0000000A", ((D1,),))
     b = _edge_issue("ISS-0000000B", ((D1,),))

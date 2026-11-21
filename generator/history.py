@@ -15,8 +15,17 @@ KZT_VALUE = {
     "KZT": Decimal("1"), "USD": Decimal("470"), "EUR": Decimal("510"), "CNY": Decimal("65"),
     "RUB": Decimal("5.2"), "JPY": Decimal("3.1"), "GBP": Decimal("600"), "TRY": Decimal("14"),
     "KGS": Decimal("5.4"), "UZS": Decimal("0.037"),
+    "KRW": Decimal("0.34"), "KWD": Decimal("1530"), "BHD": Decimal("1250"),
 }
-EXPONENTS = {"JPY": 0, "KRW": 0, "KWD": 3, "BHD": 3}  # остальные — 2
+# Разрядность по ISO 4217 для валют, у которых не 2 знака; остальные — 2.
+# Жюри скрывает валюты компании: код вне таблицы курсов получает вымышленный курс, но разрядность
+# минимальной единицы должна быть настоящей (VND и CLP без копеек, OMR и TND с тремя знаками).
+EXPONENTS = {
+    **{c: 0 for c in ("BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF",
+                      "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF")},
+    **{c: 3 for c in ("BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND")},
+    **{c: 4 for c in ("CLF", "UYW")},
+}
 FX_MARGIN_DAYS = 10
 
 MONTHS_RU = ("январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август",
@@ -170,7 +179,10 @@ def _build_fx(rng, ctx, currencies):
     last = ctx.period_end.date() + timedelta(days=FX_MARGIN_DAYS)
     value = {}
     for cur in [ctx.base] + currencies:
-        value[cur] = KZT_VALUE.get(cur) or Decimal(rng.randint(1, 500))
+        # валюта вне таблицы: вымышленная стоимость 1-500 KZT за сотую часть единицы, то есть с
+        # учётом разрядности (VND без копеек дешёвый, OMR с тремя знаками дорогой); для валют
+        # с двумя знаками - как раньше, тот же расход rng
+        value[cur] = KZT_VALUE.get(cur) or Decimal(rng.randint(1, 500)).scaleb(exponent(cur) - 2)
     # цены счетов считаются от той же стоимости, что и курсы (иначе для валют вне KZT_VALUE
     # суммы в базовой валюте расходились бы в разы)
     ctx.start_value = dict(value)
@@ -197,8 +209,11 @@ def _work_time(rng, day: date, tz) -> datetime:
     return datetime(day.year, day.month, day.day, rng.randint(9, 18), rng.randint(0, 59), 0, tzinfo=tz)
 
 
-def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
-    """Число документов и целевое число проводок с учётом совместимости диапазонов."""
+def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0, shift=(0, 0)):
+    """Число документов и целевое число проводок с учётом совместимости диапазонов.
+
+    shift=(строки, документы) - поправка цели при повторной сборке, если итог вышел за узкий
+    диапазон (generator.build). Случайные числа берутся те же, меняется только цель."""
     d_lo, d_hi = cfg["size"]["documents"]
     r_lo, r_hi = cfg["size"]["ledger_rows"]
     # Запас под ошибки и отвлекающие случаи вычитается из ВЕРХНЕЙ границы и не возвращается
@@ -214,6 +229,7 @@ def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
         r_hi_eff = max(LEDGER_BOUNDS[0], r_hi - reserve_rows - slack)
     d_hi_eff = max(DOCUMENT_BOUNDS[0], d_hi - reserve_docs)
     docs = rng.randint(min(d_lo, d_hi_eff), d_hi_eff)
+    docs = min(max(docs + shift[1], DOCUMENT_BOUNDS[0]), DOCUMENT_BOUNDS[1])
     while True:
         n_pay = docs * 2 // 5
         n_inv = docs - n_pay
@@ -224,10 +240,12 @@ def plan_sizes(rng, cfg, reserve_rows=0, reserve_docs=0):
     # +3: запас на редкие платежи без курсовой разницы (у них на строку меньше)
     lo = max(min(r_lo + 3, r_hi_eff), rows_min)
     hi = max(lo, r_lo + (r_hi_eff - r_lo) * 3 // 4)
-    return n_inv, n_pay, rng.randint(lo, hi)
+    target = rng.randint(lo, hi) + shift[0]
+    # ниже 200 цель может опуститься только при повторной сборке: итог вне пределов кейса не выбирается
+    return n_inv, n_pay, max(rows_min, min(LEDGER_BOUNDS[1], target))
 
 
-def _make_entities(content, ids, archetype, base, foreign):
+def _make_entities(content, ids, archetype, base, foreign, need_foreign=False, need_recoverable=None):
     share = FOREIGN_SHARE[archetype] if foreign else 0
     entities = []
     for _ in range(content.randint(6, 14)):
@@ -235,11 +253,77 @@ def _make_entities(content, ids, archetype, base, foreign):
         entities.append({"entity_id": ids.new("E"), "currency": cur})
     if all(e["currency"] != base for e in entities):
         entities[0]["currency"] = base  # хотя бы один контрагент в базовой валюте
+    if need_foreign and foreign and all(e["currency"] == base for e in entities):
+        # совмещённым сценариям нужен валютный контрагент (у saas их мало); rng тратится
+        # только здесь, поэтому эпизоды, где валютный контрагент и так есть, не меняются
+        entities[content.randrange(1, len(entities))]["currency"] = content.choice(foreign)
+    if need_recoverable and not any(e["currency"] in need_recoverable for e in entities):
+        # под partial_fx_payment_at_cutoff нужен контрагент в восстановимой валюте: им становится
+        # один из валютных (он есть после шага выше), контрагенты в базовой валюте не трогаются
+        idx = [i for i, e in enumerate(entities) if e["currency"] != base]
+        entities[content.choice(idx)]["currency"] = content.choice(need_recoverable)
     return entities
 
 
+def _recoverable_currency(ctx, cur) -> bool:
+    """1 minor валюты стоит не меньше 1.1 minor базовой: частичную оплату можно восстановить
+    из проводки (тот же критерий, что Injector._recoverable, с запасом на блуждание курса)."""
+    rate = ctx.rate(cur, ctx.period_start.date())
+    return rate * Decimal(10) ** (ctx.exps[ctx.base] - ctx.exps[cur]) >= Decimal("1.1")
+
+
+def _reserve_foreign_paid(content, ctx, drafts, small, entities, need):
+    """Минимум need оплаченных счетов у валютных контрагентов (под partial_fx_payment_at_cutoff).
+    Меняет только оплаченные счета вне коротких; если их хватает, rng не трогает."""
+    good = [e for e in entities if e["currency"] != ctx.base and _recoverable_currency(ctx, e["currency"])]
+    if not good:  # восстановимой валюты нет: сценарий внесётся полным пропуском в любой валюте
+        good = [e for e in entities if e["currency"] != ctx.base]
+    if not need or not good:
+        return
+    have = sum(1 for d in drafts if d["paid"] and d["entity"] in good)
+    for i, d in enumerate(drafts):
+        if have >= need:
+            break
+        if d["paid"] and i not in small and d["entity"]["currency"] == ctx.base:
+            d["entity"] = content.choice(good)
+            have += 1
+
+
+def _reserve_recoverable_paid(content, ctx, drafts, small, entities, need, keep_foreign):
+    """Минимум need оплаченных счетов в базовой или восстановимой валюте (под payment_allocation:
+    частичную оплату восстанавливают по проводке 1200). Если их мало, оплаченные счета в дешёвой
+    валюте переходят к контрагенту в базовой валюте, но keep_foreign из них остаются (под сценарий 1).
+    Если таких счетов хватает, rng не трогает."""
+    def good(e):
+        return e["currency"] == ctx.base or _recoverable_currency(ctx, e["currency"])
+    have = sum(1 for d in drafts if d["paid"] and good(d["entity"]))
+    if have >= need:
+        return
+    base = [e for e in entities if e["currency"] == ctx.base]
+    cheap = [i for i, d in enumerate(drafts) if d["paid"] and i not in small and not good(d["entity"])]
+    for i in cheap[:max(0, len(cheap) - keep_foreign)]:
+        if have >= need:
+            break
+        drafts[i]["entity"] = content.choice(base)
+        have += 1
+
+
+def _reserve_foreign_docs(content, drafts, small, foreign_entities, need):
+    """Минимум need счетов у валютных контрагентов (под fx_conversion). Меняет только счета
+    вне коротких; если валютных счетов хватает, rng не трогает."""
+    have = sum(1 for d in drafts if d["entity"] in foreign_entities)
+    if not foreign_entities or have >= need:
+        return
+    for i in content.sample(range(len(drafts)), len(drafts)):
+        if have >= need:
+            break
+        if i not in small and drafts[i]["entity"] not in foreign_entities:
+            drafts[i]["entity"] = content.choice(foreign_entities)
+            have += 1
+
+
 def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count, base_small=0,
-                 foreign_small=0):
+                 foreign_small=0, foreign_paid=0, foreign_docs=0, recoverable_paid=0):
     """Даты, контрагенты и число строк счетов. Первые n_pay будут оплачены — их даты
     не у самого конца периода. Короткие счета (1–2 строки) есть всегда, не только у дублей,
     чтобы краткость счёта не выдавала ошибку."""
@@ -259,6 +343,9 @@ def _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count,
             drafts[i]["entity"] = content.choice(base_entities)
         elif k < base_small + foreign_small and foreign_entities:  # под дубль с неверным курсом
             drafts[i]["entity"] = content.choice(foreign_entities)
+    _reserve_foreign_paid(content, ctx, drafts, small, entities, foreign_paid)
+    _reserve_foreign_docs(content, drafts, small, foreign_entities, foreign_docs)
+    _reserve_recoverable_paid(content, ctx, drafts, small, entities, recoverable_paid, foreign_paid)
     pay_rows = sum(2 if d["entity"]["currency"] == ctx.base else 3 for d in drafts if d["paid"])
     growable = [d for i, d in enumerate(drafts) if i not in small]
     extra_lines = max(0, target_rows - pay_rows - 2 * n_inv - sum(d["lines"] - 1 for d in drafts))
@@ -296,10 +383,15 @@ def _make_payment(content, ids, ctx, draft, inv):
 
 
 def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0, base_small=0,
-                foreign_small=0) -> History:
+                foreign_small=0, foreign_paid=0, foreign_docs=0, recoverable_paid=0,
+                size_shift=(0, 0)) -> History:
     """small_count — сколько счетов минимум оставить с 1–2 строками (кандидаты в дубли);
     base_small — сколько из них сделать в базовой валюте (под legit_recurring);
-    foreign_small — сколько в иностранной (под duplicate_invoice_wrong_fx)."""
+    foreign_small — сколько в иностранной (под duplicate_invoice_wrong_fx);
+    foreign_paid — сколько оплаченных валютных счетов нужно (под partial_fx_payment_at_cutoff);
+    foreign_docs — сколько валютных счетов нужно (под fx_conversion);
+    recoverable_paid — сколько оплаченных счетов в базовой или восстановимой валюте (под payment_allocation);
+    size_shift — поправка цели (строки, документы) при повторной сборке под узкий диапазон."""
     company = cfg["company"]
     tz = parse_tz(company["timezone"])
     base = company["base_currency"]
@@ -309,10 +401,13 @@ def build_clean(cfg, content, ids, reserve_rows=0, reserve_docs=0, small_count=0
                   period_end=end, exps={c: exponent(c) for c in [base] + foreign})
     episode_id = ids.new("EP")
     fx_rows = _build_fx(content, ctx, foreign)
-    entities = _make_entities(content, ids, company["archetype"], base, foreign)
-    n_inv, n_pay, target_rows = plan_sizes(content, cfg, reserve_rows, reserve_docs)
+    entities = _make_entities(content, ids, company["archetype"], base, foreign,
+                              need_foreign=bool(foreign_small or foreign_paid or foreign_docs),
+                              need_recoverable=[c for c in foreign if _recoverable_currency(ctx, c)]
+                              if foreign_paid else None)
+    n_inv, n_pay, target_rows = plan_sizes(content, cfg, reserve_rows, reserve_docs, size_shift)
     drafts, small = _make_drafts(content, ctx, entities, n_inv, n_pay, target_rows, small_count,
-                                 base_small, foreign_small)
+                                 base_small, foreign_small, foreign_paid, foreign_docs, recoverable_paid)
 
     goods = GOODS[company["archetype"]]
     period_label = f"{MONTHS_RU[start.month - 1]} {start.year}"

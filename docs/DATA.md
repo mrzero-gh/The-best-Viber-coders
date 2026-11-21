@@ -35,7 +35,8 @@ seed + config ──► генератор (A) ──► episodes/<split>/<EP-�
   "company": {"archetype": "importer", "base_currency": "KZT", "timezone": "+05:00",
               "foreign_currencies": ["USD", "CNY", "EUR", "RUB", "JPY"]},
   "size": {"ledger_rows": [300, 1200], "documents": [40, 120]},
-  "errors": {"duplicate_invoice": {"enabled": true, "count": [0, 2]}, "...": "так же для 4 типов"},
+  "errors": {"duplicate_invoice": {"enabled": true, "count": [0, 2]}, "...": "так же для 4 типов",
+             "payment_allocation": {"enabled": true, "count": [1, 3], "variant": "any"}},
   "interactions": {"partial_fx_payment_at_cutoff": {"enabled": false, "count": [0, 1]}, "...": "..."},
   "distractors": {"split_payment": {"enabled": true, "count": [0, 2]}, "...": "..."},
   "clean": false, "max_errors": 12
@@ -43,6 +44,8 @@ seed + config ──► генератор (A) ──► episodes/<split>/<EP-�
 ```
 
 `mode` (`train` / `eval`) генератор не использует — его читает среда.
+
+`errors.payment_allocation.variant` (необязательно): `any` (по умолчанию: в книге не разнесено ничего в 1 случае из 4, иначе 20–80 % суммы), `missing` (всегда пропуск: ничего не разнесено), `partial` (всегда частичное распределение). Так отдельно получаются эпизоды D09–D11 жюри. Совмещённый сценарий `partial_fx_payment_at_cutoff` вариант не меняет.
 
 ## 3. Что генерируется: папка эпизода
 
@@ -59,7 +62,7 @@ seed + config ──► генератор (A) ──► episodes/<split>/<EP-�
  "rounding": {"mode": "ROUND_HALF_EVEN"}, "csv_null": "", "config_version": "default-v1", "schema_version": "1.0"}
 ```
 
-**`policy.json`** — правила учёта, тоже приходит в первом наблюдении: курс берётся на локальную дату документа, `1 source = rate target`, округление после пересчёта, период `[start, end)`, допуск по сумме 1 минимальная единица.
+**`policy.json`** — правила учёта, тоже приходит в первом наблюдении: курс берётся на локальную дату документа, `1 source = rate target`, округление после пересчёта, период `[start, end)`, допуск по сумме по типам (`amount_tolerance_minor_by_type`: 0 для `duplicate_invoice` и `period_cutoff`, 1 для `fx_conversion` и `payment_allocation`).
 
 **`ledger.csv`** — книга проводок (таблица `ledger`).
 ```
@@ -103,7 +106,7 @@ date,source_currency,target_currency,rate
 Пример ошибки из `truth.json`:
 ```json
 {"issue_id": "ISS-FA0Y0KMS", "type": "period_cutoff", "affected_ids": ["INV-EB1XPBJB"],
- "expected_amount_minor": 2076280, "currency": "JPY", "amount_tolerance_minor": 1,
+ "expected_amount_minor": 2076280, "currency": "JPY", "amount_tolerance_minor": 0,
  "evidence_sets": [["DOC-69MP4DT0", "L-135CK00B"], ["DOC-69MP4DT0", "L-1FBEEYHS"], "..."], "scenario": null}
 ```
 
@@ -112,7 +115,7 @@ date,source_currency,target_currency,rate
 Журнал того, как чистая история компании превратилась в эпизод с ошибками. По нему видно, какое изменение породило каждую ошибку из `truth.json`.
 
 ```json
-{"episode_id": "EP-…", "generator_version": "0.5.0",
+{"episode_id": "EP-…", "generator_version": "0.6.0",
  "clean_history_sha256": "9f…",
  "mutations": [
    {"issue_id": "ISS-…", "type": "fx_conversion",
@@ -126,6 +129,7 @@ date,source_currency,target_currency,rate
 | `clean_history_sha256` | sha256 чистой истории **до** внесения ошибок, но уже с отвлекающими случаями (`generator.build.history_digest`: канонический JSON таблиц ledger, invoices, payments, fx) |
 | `mutations[]` | одна запись на каждую ошибку, в том же порядке, что `truth.issues`; `issue_id` и `type` совпадают с `truth.json` |
 | `changes[]` | `{table, record_id, field, before, after}`: что именно изменилось |
+| `clean_history_diff` | полный обратимый журнал отличий открытых таблиц от чистой истории (ниже) |
 
 Отвлекающие случаи (`truth.distractors`) в `mutations` не попадают: это законные данные чистой истории.
 
@@ -146,9 +150,32 @@ date,source_currency,target_currency,rate
 
 **Сценарии взаимодействия** (`truth.issues[].scenario`) дают несколько записей в `mutations`, по одной на каждую ошибку сценария. Изменения одной записи могут затрагивать проводки, созданные предыдущей (например, `__deleted__` строки, которую создал дубликат).
 
+**Журнал `clean_history_diff`.** `mutations` объясняет каждую ошибку, но описательно: в нём есть служебные поля (`allocated_minor:<INV>`, `rate_used`), а у удалённых проводок записан только ключ документа. Для точного восстановления есть отдельный полный журнал: генератор сравнивает таблицы до и после внесения ошибок.
+
+```json
+"clean_history_diff": {
+  "ledger":   {"removed": [{"row_id": "L-…", "timestamp": "…", "account": "1200", "debit_minor": 125000,
+                            "credit_minor": 0, "currency": "KZT", "entity_id": "ENT-…",
+                            "invoice_id": "INV-…", "payment_id": null}],
+               "added": ["L-…"], "modified": []},
+  "invoices": {"removed": [], "added": ["INV-…"],
+               "modified": [{"id": "INV-…", "field": "issued_at", "before": "…", "after": "…"}]},
+  "payments": {"removed": [], "added": [], "modified": []},
+  "fx":       {"removed": [], "added": [], "modified": []}}
+```
+
+| Ключ | Значение |
+|---|---|
+| `removed` | строки чистой истории целиком, в формате открытых файлов; в открытых данных их нет |
+| `added` | ID строк, которых не было в чистой истории (у курса ID - `FX:<дата>:<валюта>:<база>`) |
+| `modified` | `{id, field, before, after}`: `after` равен текущему открытому значению |
+
+Чистая история = открытые таблицы, из которых убраны `added`, возвращены `removed`, а у `modified` поставлено `before`. Строки сортируются как в открытых файлах (время, затем ID; курсы - дата и валюты), sha256 канонического JSON четырёх таблиц равен `clean_history_sha256`. У чистой компании журнал пустой.
+
 **Как проверить независимо.**
 - `python -m generator.explain <папка эпизода> [ISS-…]` рассказывает историю каждой ошибки по `provenance.json`.
-- Из `__deleted__` содержимое удалённых строк не восстанавливается (хранится только ключ документа). Поэтому чистая история проверяется перегенерацией: тот же `seed` и `config` из `generation.json` дают тот же эпизод и тот же `clean_history_sha256`.
+- `python -m grader.clean_history <папка эпизода>` восстанавливает чистую историю по открытым данным и `clean_history_diff` и проверяет три вещи: sha256 совпадает с `clean_history_sha256`; в книге до внесения ошибок дебет равен кредиту и сходится каждый документ; журнал согласован с открытыми данными. Эту же проверку делает сертификат `grader.certificate` (пункт `clean_history_balance`).
+- Перегенерация тоже работает: тот же `seed` и `config` из `generation.json` дают тот же эпизод и тот же `clean_history_sha256`.
 - `record_id` у `__deleted__` в открытых данных нет. Остальные `record_id` в открытых данных есть. Исключение: `__created__`-строки дубликата в сценарии `duplicate_invoice_wrong_fx`, которые следующая запись удаляет как `__deleted__`.
 
 > Эпизоды в `episodes/` руками не править: среда сверяет sha256 и отклонит такой эпизод (`EPISODE_INVALID`). Нужно другое — перегенерировать.

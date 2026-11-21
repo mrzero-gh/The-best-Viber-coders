@@ -99,3 +99,30 @@ def test_certificate_and_oracle(seed, tmp_path):
         for i in truth["issues"]]}
     result = evaluate(findings, truth, truth["episode_id"], 0)
     assert result["valid"] and result["metrics"]["f1"] == 1.0 and result["reward"] == 1.0
+
+
+# Фазз генератора (scripts/fuzz_generator.py, 21.11): у saas всего 20% валютных контрагентов, и
+# в части сидов не было ни валютного контрагента, ни оплаченного валютного счёта - совмещённые
+# сценарии и fx_conversion вносились меньше плана. Сиды ниже до исправления недовносили все три.
+@pytest.mark.parametrize("seed,archetype", [(1, "saas"), (13, "saas"), (45, "saas"), (69, "distributor")])
+def test_foreign_scenarios_injected_for_low_foreign_archetypes(seed, archetype, tmp_path):
+    cfg = {"company": {"archetype": archetype},
+           "errors": {t: {"enabled": True, "count": [1, 2]} for t in ERRORS},
+           "interactions": {s: {"enabled": True, "count": [1, 1]}
+                            for s in ("partial_fx_payment_at_cutoff", "duplicate_invoice_wrong_fx")}}
+    g = load(generate_episode(seed, cfg, tmp_path))["generation"]
+    assert g["interactions_injected"] == g["interactions_planned"]
+    assert all(g["errors_injected"][t] >= g["errors_planned"][t] for t in ERRORS), g
+
+
+def test_recoverable_foreign_entity_reserved(tmp_path):
+    """База CNY, валюты KZT/UZS/KGS дешевле базы (частичную оплату не восстановить), EUR дороже:
+    контрагент в EUR должен появиться, иначе partial_fx_payment_at_cutoff не внести (фазз, idx 251)."""
+    cfg = {"company": {"archetype": "saas", "base_currency": "CNY",
+                       "foreign_currencies": ["KZT", "UZS", "KGS", "EUR"]},
+           "errors": {t: OFF for t in ERRORS},
+           "interactions": {"partial_fx_payment_at_cutoff": {"enabled": True, "count": [1, 1]},
+                            "duplicate_invoice_wrong_fx": OFF}}
+    for seed in range(6):
+        g = load(generate_episode(seed, cfg, tmp_path / str(seed)))["generation"]
+        assert g["interactions_injected"]["partial_fx_payment_at_cutoff"] == 1, seed

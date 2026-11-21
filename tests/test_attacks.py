@@ -12,9 +12,8 @@ from tests.test_grader_fixtures import EPISODE_ID, answer_for, issue, truth_for
     ("claimed_amount_minor", True),
     ("claimed_amount_minor", 1000.0), ("claimed_amount_minor", "1000"),
     ("claimed_amount_minor", float("nan")), ("claimed_amount_minor", float("inf")),
-    ("currency", None), ("currency", ""), ("currency", 840),
-    ("affected_ids", []), ("affected_ids", "INV-00000001"),
-    ("affected_ids", [None]), ("affected_ids", [""]), ("affected_ids", ["x" * 65]),
+    ("currency", None), ("currency", 840),
+    ("affected_ids", "INV-00000001"), ("affected_ids", [None]),
     ("evidence_ids", ["L-00000001"] * 11), ("evidence_ids", {}),
     ("explanation", "x" * 1001), ("explanation", None),
     ("reward", 1), ("issue_id", "ISS-00000001"),
@@ -27,6 +26,22 @@ def test_invalid_finding_is_minus_one(field, value):
     assert result["valid"] is False
     assert result["reward"] == -1
     assert result["metrics"]["tp"] == 0
+
+
+# Правило 8 нормализации жюри: структурные лимиты - только 30 выводов, 10 доказательств и
+# 1000 символов explanation. Строка или список строк неверного содержания - это FP, а не -1.
+@pytest.mark.parametrize("field,value", [
+    ("type", ""), ("type", "x" * 65), ("currency", ""), ("currency", "X" * 17),
+    ("affected_ids", []), ("affected_ids", [""]), ("affected_ids", ["x" * 65]),
+    ("affected_ids", ["INV-00000002"] * 11), ("evidence_ids", [""]), ("evidence_ids", ["x" * 65]),
+])
+def test_wrong_but_well_formed_finding_is_fp(field, value):
+    truth = truth_for(issue())
+    answer = answer_for(truth)
+    answer["findings"][0][field] = value
+    result = evaluate(answer, truth, EPISODE_ID, 0)
+    assert result["valid"] is True
+    assert result["metrics"]["tp"] == 0 and result["metrics"]["fp"] == 1
 
 
 @pytest.mark.parametrize("payload", [None, [], True, 1, "{broken JSON", {},

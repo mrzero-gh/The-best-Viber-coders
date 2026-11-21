@@ -100,6 +100,7 @@ def test_bad_truth_fails_on_server(defect):
     if defect == "episode":
         truth["episode_id"] = "EP-00000002"
     elif defect == "duplicate_id":
+        # повтор пары (type, affected_ids) допустим (M10/M11), повтор issue_id - нет
         extra = issue(number=2)
         extra["issue_id"] = truth["issues"][0]["issue_id"]
         truth["issues"].append(extra)
@@ -123,10 +124,19 @@ def test_shared_schema_examples_and_private_output():
         assert "evidence_sets" not in serialized
 
 
-def test_raw_limits_are_checked_before_deduplication():
+def test_affected_ids_repeats_are_a_set_without_limit():
+    """Правило 2 жюри: affected_ids - множество, повторы не важны; лимита на их число нет."""
     truth = truth_for(issue())
     answer = answer_for(truth)
     answer["findings"][0]["affected_ids"] *= 11
+    result = score(answer, truth)
+    assert result["valid"] is True and result["metrics"]["tp"] == 1
+
+
+def test_raw_evidence_limit_is_checked_before_deduplication():
+    truth = truth_for(issue())
+    answer = answer_for(truth)
+    answer["findings"][0]["evidence_ids"] = answer["findings"][0]["evidence_ids"][:1] * 11
     assert score(answer, truth)["valid"] is False
 
 

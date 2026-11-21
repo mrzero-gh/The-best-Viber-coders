@@ -149,6 +149,20 @@ def test_garbage_and_long_line(tmp):
         r.reset()  # сервер жив
 
 
+
+def test_lone_surrogate_is_bad_request_without_step(tmp):
+    """Фазз среды (21.11): экранированный одиночный суррогат - валидный JSON, но не UTF-8. Раньше ID попадал в сообщение
+    NOT_FOUND, ответ не кодировался, агент получал INTERNAL, а шаг уже был потрачен."""
+    r = Run(tmp)
+    with r.env:
+        r.reset()
+        for args in (r'{"tool":"get_record","args":{"table":"ledger","id":"\ud800"}}',
+                     r'{"tool":"get_document","args":{"doc_id":"x\udfff"}}'):
+            line = ('{"cmd":"step","action":%s}\n' % args).encode("ascii")
+            assert _raw(r.env, line)["error"]["code"] == "BAD_REQUEST"
+        obs = r.env.step(LIST)[0]
+        assert obs["steps_used"] == 1  # мусорные строки шагов не тратили
+
 def test_bad_config_and_seed(tmp):
     r = Run(tmp)
     with r.env:

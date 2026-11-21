@@ -113,8 +113,15 @@ def test_invalid_args_variants(env):
     _err(env.step("get_record", table="ledger", id=5), "INVALID_ARGS")
     _err(env.step("get_document"), "INVALID_ARGS")
     _err(env.step("calculator", expression=5), "INVALID_ARGS")
-    _err(env.step("submit"), "INVALID_ARGS")
-    _err(env.step("submit", findings={}, extra=1), "INVALID_ARGS")
+
+
+@pytest.mark.parametrize("args", [{}, {"findings": {}, "extra": 1}])
+def test_submit_with_bad_args_is_structural_submit_error(args):
+    """Правило 8 жюри: отсутствующее обязательное поле - структурная ошибка submit, награда -1."""
+    from grader.evaluate import evaluate
+    obs, reward, term, trunc, info = Env(grader=evaluate).step("submit", **args)
+    assert obs["kind"] == "final" and obs["status"] == "invalid_findings"
+    assert term and not trunc and reward == -1.0
 
 
 def test_invoices_without_line_items(env):
