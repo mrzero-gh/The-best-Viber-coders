@@ -43,8 +43,11 @@ def _prove(data: PublicEvidence, kind: str, affected: list[str], evidence: set[s
         declared = data.allocations(payment)
         require(invoice["invoice_id"] in declared, "invoice absent from payment references")
         book = data.book(payment)
-        posted = {identifier: data.source_amount(-book.get(("1200", identifier), 0),
-                  payment["currency"], data.invoices[identifier]["issued_at"]) for identifier in declared}
+        # нет строки 1200 по счёту - по нему ничего не разнесено (нулевых проводок в книге нет);
+        # есть строка - разнесённая сумма восстанавливается обратным пересчётом, только однозначно
+        posted = {identifier: 0 if ("1200", identifier) not in book else data.source_amount(
+                  -book[("1200", identifier)], payment["currency"], data.invoices[identifier]["issued_at"])
+                  for identifier in declared}
         require(data.payment_book(payment, posted) == book, "unallocated remainder or FX postings are inconsistent")
         amount = declared[invoice["invoice_id"]] - posted[invoice["invoice_id"]]
         require(amount > 0, "no missing payment allocation")

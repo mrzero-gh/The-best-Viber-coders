@@ -97,6 +97,12 @@ class Injector:
         if not cands:
             return None
         src = self.rng.choice(cands)
+        if foreign_only and not self._fx_gap_possible(src):
+            # под дубль с неверным курсом: у малого счёта в дешёвой валюте даже 5 % искажения не дают
+            # заметного расхождения. Перевыбор только в этом случае: удачные выборы не меняются
+            feasible = [inv for inv in cands if self._fx_gap_possible(inv)]
+            if feasible:
+                src = self.rng.choice(feasible)
         src_day = ctx.local_date(src["issued_at"])
         delta = self.rng.randint(0, max(0, min(5, (end_day - src_day).days - 1)))
         day = src_day + timedelta(days=delta)
@@ -150,13 +156,19 @@ class Injector:
         """Валютный платёж с датой после конца периода проведён в периоде и разнесён частично.
         Две ошибки: period_cutoff [payment] и payment_allocation [invoice, payment]."""
         h, ctx = self.h, self.h.ctx
-        cands = [p for p in h.payments if p["amount_minor"] > 0 and len(p["invoice_refs"]) == 1
-                 and p["currency"] != ctx.base and self._free(p) and self._recoverable(p)]
+        foreign = [p for p in h.payments if p["amount_minor"] > 0 and len(p["invoice_refs"]) == 1
+                   and p["currency"] != ctx.base and self._free(p)]
+        cands = [p for p in foreign if self._recoverable(p)]
+        # 1 minor валюты дешевле 1 minor базовой (база USD, валюта KZT): частичную оплату по
+        # проводке не восстановить, а полный пропуск (ничего не разнесено) восстанавливается точно
+        missing_only = not cands
+        if missing_only:
+            cands = foreign
         if not cands:
             return None
         pay = self.rng.choice(cands)
         ref = pay["invoice_refs"][0]
-        allocated = self._partial(ref["amount_minor"])
+        allocated = 0 if missing_only else self._partial(ref["amount_minor"])
         name = "partial_fx_payment_at_cutoff"
         cut = self.period_cutoff(scenario=name, doc=pay, after_end=True,
                                  allocated={ref["invoice_id"]: allocated})
@@ -256,6 +268,16 @@ class Injector:
 
     # ---------- fx_conversion ----------
 
+    def _fx_gap_possible(self, inv):
+        """Искажение курса на 5 % (максимум _wrong_rate) даёт расхождение с запасом больше
+        MIN_FX_GAP_MINOR: запас 20 % на дрейф курса за 0–5 дней до даты дубля."""
+        ctx = self.h.ctx
+        day = ctx.local_date(inv["issued_at"])
+        rate = ctx.rate(inv["currency"], day)
+        gap = abs(ctx.convert(inv["total_minor"], inv["currency"], day, rate * Decimal("1.05"))
+                  - ctx.convert(inv["total_minor"], inv["currency"], day))
+        return gap * 5 >= MIN_FX_GAP_MINOR * 6
+
     def _wrong_rate(self, cur, day):
         """Курс другой даты (±1–5 дней) или искажённый на 1–5 %. Возвращает (курс, описание)."""
         ctx = self.h.ctx
@@ -274,14 +296,25 @@ class Injector:
             invs = [i for i in h.invoices if i["currency"] != ctx.base and self._free(i)]
             pays = [p for p in h.payments if p["currency"] != ctx.base and p["amount_minor"] > 0
                     and len(p["invoice_refs"]) == 1 and self._free(p)]
-            doc = self._pick_doc(invs, pays)
-            if doc is None:
-                return None
+            # документ с малой суммой может не дать заметного расхождения (дешёвая валюта при
+            # дорогой базе): тогда берём следующий; первый удачный выбор тратит rng как раньше
+            while True:
+                doc = self._pick_doc(invs, pays)
+                if doc is None:
+                    return None
+                made = self._fx_conversion_doc(doc, scenario)
+                if made is not None:
+                    return made
+                (pays if "payment_id" in doc else invs).remove(doc)
+        return self._fx_conversion_doc(doc, scenario)
+
+    def _fx_conversion_doc(self, doc, scenario):
+        h, ctx = self.h, self.h.ctx
         is_pay = "payment_id" in doc
         amount = doc["amount_minor"] if is_pay else doc["total_minor"]
         day = ctx.local_date(doc["timestamp"] if is_pay else doc["issued_at"])
         correct = ctx.convert(amount, doc["currency"], day)
-        for _ in range(8):
+        for _ in range(32):  # больше попыток меняет только случаи, где 8 не хватало
             rate, how = self._wrong_rate(doc["currency"], day)
             posted = ctx.convert(amount, doc["currency"], day, rate)
             if abs(posted - correct) >= MIN_FX_GAP_MINOR:
