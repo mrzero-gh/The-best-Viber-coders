@@ -99,13 +99,17 @@ def test_unknown_added_id_fails(full_episode):
     assert clean_history.check(public, prov)["status"] == "failed"
 
 
-def test_without_diff_not_checked_and_certificate_unaffected(full_episode):
+def test_without_diff_not_checked_and_not_certified(full_episode):
+    # ревью C 22.11: без доказательства чистой истории сертификат не выдаётся
     public, truth, prov = copy.deepcopy(full_episode)
     del prov["clean_history_diff"]
     report = certify(public, truth, prov)
     assert report["clean_history_balance"]["status"] == "not_checked"
-    assert report["valid"]
+    assert not report["valid"]
+    assert all(item["valid"] for item in report["issues"])  # сами ошибки при этом доказаны
+    assert certify(public, truth, prov, require_history=False)["valid"]  # режим ручных мини-эпизодов
     assert certify(public, truth)["clean_history_balance"]["status"] == "not_checked"
+    assert not certify(public, truth)["valid"]
 
 
 def test_check_does_not_mutate_inputs(full_episode):

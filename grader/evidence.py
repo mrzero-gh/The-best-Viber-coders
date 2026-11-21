@@ -150,23 +150,70 @@ class PublicEvidence:
             ctx.prec = max(34, len(str(abs(amount))) + len(factor.as_tuple().digits) + 8)
             return int((Decimal(amount) * factor).to_integral_value(rounding=ROUND_HALF_EVEN))
 
-    def source_amount(self, base_amount: int, currency: str, timestamp: str) -> int:
-        """Восстанавливает сумму только при однозначной обратной конвертации.
-
-        При потере точности нельзя брать сумму из truth и выдавать её за доказательство.
-        """
+    def preimage(self, base_amount: int, currency: str, timestamp: str) -> tuple[int, int]:
+        """Все n >= 0 с convert(n) == base_amount - отрезок [low, high] (convert монотонен); low > high - пусто."""
         require(base_amount >= 0, "negative posted allocation")
         factor = Fraction(self.factor(currency, timestamp))
         lower = (Fraction(base_amount) - Fraction(1, 2)) / factor
         upper = (Fraction(base_amount) + Fraction(1, 2)) / factor
         low = max(0, -(-lower.numerator // lower.denominator))
         high = upper.numerator // upper.denominator
-        if low <= high and self.convert(low, currency, timestamp) != base_amount:
+        while low <= high and self.convert(low, currency, timestamp) != base_amount:
             low += 1
-        if high >= low and self.convert(high, currency, timestamp) != base_amount:
+        while high >= low and self.convert(high, currency, timestamp) != base_amount:
             high -= 1
+        return low, high
+
+    def source_amount(self, base_amount: int, currency: str, timestamp: str) -> int:
+        """Восстанавливает сумму только при однозначной обратной конвертации.
+
+        При потере точности нельзя брать сумму из truth и выдавать её за доказательство.
+        """
+        low, high = self.preimage(base_amount, currency, timestamp)
         require(low == high, "allocation cannot be uniquely recovered after rounding")
         return low
+
+    def allocation_ranges(self, doc: dict, book: dict, fixed: dict[str, int] | None = None) -> dict:
+        """Совместное восстановление распределений платежа по его проводкам.
+
+        Строка Кт 1200 по счёту задаёт отрезок сумм, дающих её при пересчёте (нет строки - 0: каждое
+        ненулевое распределение даёт строку не меньше 1 minor базы); строка 2900 задаёт отрезок для
+        остатка, то есть для суммы всех распределений. Возвращает для каждого счёта выписки отрезок
+        значений, совместимых со всеми строками сразу, и одно совместимое распределение целиком
+        (`assignment`); fixed - распределения, известные заранее. Отрезки не пусты, иначе ValueError.
+        """
+        declared = self.allocations(doc)
+        sign = 1 if doc["amount_minor"] >= 0 else -1
+        total = abs(doc["amount_minor"])
+        ranges = {}
+        for invoice_id in sorted(declared):
+            if fixed is not None and invoice_id in fixed:
+                ranges[invoice_id] = (fixed[invoice_id], fixed[invoice_id])
+                continue
+            line = book.get(("1200", invoice_id))
+            if line is None:
+                ranges[invoice_id] = (0, 0)
+                continue
+            require(-sign * line > 0, "1200 line has the wrong direction")
+            ranges[invoice_id] = self.preimage(-sign * line, doc["currency"], self.invoices[invoice_id]["issued_at"])
+        rest = -sign * book.get(("2900", None), 0)
+        require(rest >= 0, "2900 line has the wrong direction")
+        rest_low, rest_high = self.preimage(rest, doc["currency"], doc["timestamp"])
+        sum_low, sum_high = max(0, total - rest_high), min(total, total - rest_low)
+        low_all = sum(low for low, _ in ranges.values())
+        high_all = sum(high for _, high in ranges.values())
+        result = {}
+        for invoice_id, (low, high) in ranges.items():
+            result[invoice_id] = (max(low, sum_low - (high_all - high)), min(high, sum_high - (low_all - low)))
+        require(all(low <= high for low, high in result.values()) and low_all <= sum_high and high_all >= sum_low,
+                "posted allocations are inconsistent with payment postings")
+        assignment = {invoice_id: low for invoice_id, (low, _) in result.items()}
+        deficit = max(0, sum_low - sum(assignment.values()))
+        for invoice_id, (low, high) in sorted(result.items()):
+            step = min(deficit, high - low)
+            assignment[invoice_id] += step
+            deficit -= step
+        return {"ranges": result, "assignment": assignment}
 
     def rows(self, doc: dict) -> list[dict]:
         if "payment_id" in doc:

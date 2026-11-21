@@ -1,6 +1,17 @@
-"""Скрипт самопроверки методикой жюри: python -m scripts.jury."""
+"""Скрипт самопроверки методикой жюри: python -m scripts.jury.
+
+Изоляция как у жюри: эпизод генерирует сам сервер среды (отдельный процесс) по seed и config,
+эталон он держит в памяти, а временную папку удаляет сразу после загрузки. Каждая политика -
+тоже отдельный процесс (scripts.policy_worker) в пустой временной папке: получает только
+наблюдения, без путей к эпизоду и без памяти этого запускателя. Эталон получает только
+OraclePolicy (эталонная политика): для неё эпизод генерируется отдельно, эталон читается и
+папка удаляется до начала прогона.
+"""
 import argparse
 import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -8,7 +19,6 @@ from pathlib import Path
 
 from env.client import AuditEnv
 from generator.build import generate_episode
-from policies import FlagAllPolicy, OraclePolicy, RandomPolicy, RuleBasedPolicy, SimpleRulePolicy
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -58,16 +68,72 @@ TEST_SCENARIOS = [
 ]
 
 
-def evaluate_policy_on_episode(policy, episode_path: Path, grader_str: str) -> dict:
+class PolicyProcess:
+    """Политика в отдельном процессе: получает только наблюдения и отвечает действиями."""
+
+    def __init__(self, spec: str):
+        self.spec = spec
+        self._dir = tempfile.mkdtemp(prefix="policy-")  # пустая рабочая папка: путей к эпизодам нет
+        env = {key: os.environ[key] for key in ("SYSTEMROOT", "SystemRoot", "PATH", "TEMP", "TMP", "HOME")
+               if key in os.environ}
+        env.update(PYTHONPATH=str(ROOT), PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")
+        self._proc = subprocess.Popen([sys.executable, "-m", "scripts.policy_worker", spec], cwd=self._dir,
+                                      env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+    def _call(self, msg: dict) -> dict:
+        self._proc.stdin.write(json.dumps(msg, ensure_ascii=False).encode("utf-8") + b"\n")
+        self._proc.stdin.flush()
+        line = self._proc.stdout.readline()
+        if not line:
+            raise RuntimeError(f"процесс политики {self.spec} завершился")
+        return json.loads(line.decode("utf-8"))
+
+    def reset(self) -> None:
+        self._call({"cmd": "reset"})
+
+    def set_truth(self, truth: dict) -> None:
+        self._call({"cmd": "truth", "truth": truth})
+
+    def act(self, observation: dict) -> dict:
+        return self._call({"cmd": "act", "observation": observation})["action"]
+
+    def close(self) -> None:
+        if self._proc.stdin and not self._proc.stdin.closed:
+            self._proc.stdin.close()
+        try:
+            self._proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self._proc.kill()
+            self._proc.wait()
+        for stream in (self._proc.stdout,):
+            if stream:
+                stream.close()
+        shutil.rmtree(self._dir, ignore_errors=True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+def oracle_truth(seed: int, cfg: dict) -> dict:
+    """Эталон для OraclePolicy: тот же эпизод генерируется отдельно, папка удаляется сразу."""
+    with tempfile.TemporaryDirectory(prefix="oracle-") as td:
+        ep = generate_episode(seed, cfg, Path(td))
+        return json.loads((ep / "private" / "truth.json").read_text(encoding="utf-8"))
+
+
+def evaluate_policy_on_episode(policy, seed: int, cfg: dict, grader_str: str, truth: dict | None = None) -> dict:
+    """Один эпизод: сервер среды генерирует его по seed и cfg; policy - PolicyProcess."""
     t0 = time.monotonic()
-    truth = json.loads((episode_path / "private" / "truth.json").read_text(encoding="utf-8"))
     policy.reset()
-    if isinstance(policy, OraclePolicy):
+    if truth is not None:
         policy.set_truth(truth)
 
     steps = 0
-    with AuditEnv(episode=str(episode_path), grader=grader_str) as env:
-        obs, info = env.reset(seed=0, config={"mode": "train"})
+    with AuditEnv(grader=grader_str) as env:
+        obs, info = env.reset(seed=seed, config=dict(cfg, mode="train"))
         terminated = truncated = False
         while not (terminated or truncated):
             action = policy.act(obs)
@@ -100,8 +166,11 @@ def _check_reproducibility(tpath: Path, grader_str: str):
     eps = [generate_episode(7790, cfg, tpath / f"repro-{k}") for k in (1, 2)]
     shas = [json.loads((e / "private" / "generation.json").read_text(encoding="utf-8"))["episode_sha256"]
             for e in eps]
+    for k in (1, 2):  # эталон не лежит на диске, пока работает политика
+        shutil.rmtree(tpath / f"repro-{k}", ignore_errors=True)
     keys = ("reward", "steps", "tp", "fp", "fn", "f1")
-    runs = [evaluate_policy_on_episode(RuleBasedPolicy(naive=False), eps[0], grader_str) for _ in (1, 2)]
+    with PolicyProcess("SmartAuditor") as policy:
+        runs = [evaluate_policy_on_episode(policy, 7790, cfg, grader_str) for _ in (1, 2)]
     same_files = shas[0] == shas[1]
     same_run = all(runs[0][k] == runs[1][k] for k in keys)
     if same_files and same_run:
@@ -131,13 +200,16 @@ def run_jury_evaluation(grader_str: str = "grader.evaluate:evaluate", seeds_per_
     print("=================================================================")
     print(f"Используемый оценщик: {grader_str}\n")
 
-    policies = {
-        "OraclePolicy": OraclePolicy(),
-        "SmartAuditor": RuleBasedPolicy(naive=False),
-        "SimpleRule": SimpleRulePolicy(),
-        "FlagAllPolicy": FlagAllPolicy(),
-        "RandomPolicy": RandomPolicy(seed=42),
-    }
+    names = ["OraclePolicy", "SmartAuditor", "SimpleRule", "FlagAllPolicy", "RandomPolicy"]
+    policies = {name: PolicyProcess(name) for name in names}
+    try:
+        return _run(policies, grader_str, seeds_per_scenario)
+    finally:
+        for policy in policies.values():
+            policy.close()
+
+
+def _run(policies: dict, grader_str: str, seeds_per_scenario: int) -> int:
 
     results = {name: {"reward": [], "f1": [], "p": [], "r": [], "steps": [], "time_s": []} for name in policies}
     per_episode = []  # (номер сценария, чистый ли эпизод, политика, результат)
@@ -152,11 +224,11 @@ def run_jury_evaluation(grader_str: str = "grader.evaluate:evaluate", seeds_per_
             print(f"Сценарий {scen_idx}/4: {scen['name']}")
             for s_offset in range(seeds_per_scenario):
                 seed = 7700 + scen_idx * 10 + s_offset
-                ep = generate_episode(seed, cfg, tpath)
                 total_episodes += 1
 
                 for pol_name, policy in policies.items():
-                    res = evaluate_policy_on_episode(policy, ep, grader_str)
+                    truth = oracle_truth(seed, cfg) if pol_name == "OraclePolicy" else None
+                    res = evaluate_policy_on_episode(policy, seed, cfg, grader_str, truth)
                     per_episode.append((scen_idx, scen["clean"], pol_name, res))
                     results[pol_name]["reward"].append(res["reward"])
                     results[pol_name]["f1"].append(res["f1"])
