@@ -91,15 +91,15 @@ def test_bad_server_step_count_is_not_an_agent_penalty(steps):
         score(answer_for(truth), truth, steps)
 
 
-@pytest.mark.parametrize("defect", ["episode", "duplicate_key", "duplicate_id", "float", "empty_evidence"])
+@pytest.mark.parametrize("defect", ["episode", "duplicate_id", "float", "empty_evidence"])
 def test_bad_truth_fails_on_server(defect):
     truth = truth_for(issue())
     if defect == "episode":
         truth["episode_id"] = "EP-00000002"
-    elif defect in ("duplicate_key", "duplicate_id"):
+    elif defect == "duplicate_id":
+        # повтор пары (type, affected_ids) допустим (M10/M11), повтор issue_id - нет
         extra = issue(number=2)
-        key = "affected_ids" if defect == "duplicate_key" else "issue_id"
-        extra[key] = truth["issues"][0][key]
+        extra["issue_id"] = truth["issues"][0]["issue_id"]
         truth["issues"].append(extra)
     elif defect == "float":
         truth["issues"][0]["expected_amount_minor"] = 1000.0

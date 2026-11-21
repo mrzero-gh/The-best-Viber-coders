@@ -64,7 +64,7 @@ def test_core_closes_episode_when_grader_rejects_truth(tmp_path):
     ep = tmp_path / "ep"
 
     def bad_grader(*args, **kwargs):
-        raise ValueError("truth: duplicate issue ID or canonical key")
+        raise ValueError("truth: duplicate issue ID")
 
     core = AuditCore(load_public(ep), load_truth(ep), mode="train", grader=bad_grader)
     with pytest.raises(GraderError):

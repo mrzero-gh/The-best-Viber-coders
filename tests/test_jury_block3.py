@@ -199,9 +199,7 @@ def _edge_issue(iid, evidence):
 
 
 def test_m10_maximum_matching():
-    """F0 подходит A и B, F1 - только A: нужно F1->A, F0->B, TP=2 (жадный F0->A дал бы 1).
-    В наших эпизодах такой граф не возникает (ключ (type, affected_ids) уникален), но match()
-    всё равно строит максимальное паросочетание."""
+    """F0 подходит A и B, F1 - только A: нужно F1->A, F0->B, TP=2 (жадный F0->A дал бы 1)."""
     a = _edge_issue("ISS-0000000A", ((D1,),))
     b = _edge_issue("ISS-0000000B", ((D2,),))
     f0 = finding(affected=(R1, R2), evidence=(D1, D2))
@@ -212,12 +210,34 @@ def test_m10_maximum_matching():
                               {"finding_index": 1, "issue_id": "ISS-0000000A"}]
 
 
-def test_m10_graph_cannot_occur_in_our_truth():
-    """Почему жадный порядок у нас эквивалентен максимальному: такой truth отвергается."""
+def test_m10_through_evaluate():
+    """Эталон с одной парой (type, affected_ids) у двух ошибок принимается оценщиком: TP=2."""
     a = _edge_issue("ISS-0000000A", ((D1,),))
     b = _edge_issue("ISS-0000000B", ((D2,),))
+    f0 = finding(affected=(R1, R2), evidence=(D1, D2))
+    f1 = finding(affected=(R1, R2), evidence=(D1,))
+    res = run([f0, f1], truth(a, b))
+    assert res["valid"] and res["metrics"]["tp"] == 2
+    assert res["metrics"]["fp"] == 0 and res["metrics"]["fn"] == 0
+
+
+def test_truth_duplicate_issue_id_still_rejected():
+    a = _edge_issue("ISS-0000000A", ((D1,),))
     with pytest.raises(ValueError):
-        run([], truth(a, b))
+        run([], truth(a, _edge_issue("ISS-0000000A", ((D2,),))))
+
+
+def test_unknown_string_type_is_fp_not_invalid():
+    """Правило 8 жюри: неизвестный строковый type - несопоставимый вывод (FP), а не авария submit."""
+    res = run([dict(F, type="mystery_error"), F], truth(A))
+    assert res["valid"]
+    assert (res["metrics"]["tp"], res["metrics"]["fp"], res["metrics"]["fn"]) == (1, 1, 0)
+
+
+@pytest.mark.parametrize("bad", [None, 7, True, "", "x" * 65, ["fx_conversion"]])
+def test_non_string_or_empty_type_is_structural_error(bad):
+    res = run([dict(F, type=bad)], truth(A))
+    assert not res["valid"] and res["reward"] == -1
 
 
 def test_m11_deterministic_tie_break():
