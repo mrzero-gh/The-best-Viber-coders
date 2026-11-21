@@ -19,11 +19,15 @@ from scripts import ui
 from env.client import AuditEnv
 
 EP = "EP-0HJPAE81"
+# Запас на нагруженную машину (полный прогон тестов на Windows): тесту нужен ответ, а не скорость
+HTTP_TIMEOUT = 120
 
 
 @pytest.fixture(scope="module")
 def server():
-    httpd = http.server.HTTPServer(("127.0.0.1", 0), ui.AuditUIRequestHandler)
+    # Многопоточный сервер: медленное соединение одного теста не задерживает ответы следующим
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ui.AuditUIRequestHandler)
+    httpd.daemon_threads = True
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()
     yield httpd.server_address[1]
@@ -45,7 +49,7 @@ def no_generate(monkeypatch):
 
 
 def _req(port, method, path, body=None, headers=None):
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=60)
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=HTTP_TIMEOUT)
     data = json.dumps(body).encode() if body is not None else None
     conn.request(method, path, body=data, headers=headers or {})
     resp = conn.getresponse()
@@ -130,7 +134,7 @@ def test_run_rejects_unknown_policy(server, policy):
 
 
 def test_post_body_size_is_limited(server):
-    conn = http.client.HTTPConnection("127.0.0.1", server, timeout=30)
+    conn = http.client.HTTPConnection("127.0.0.1", server, timeout=HTTP_TIMEOUT)
     conn.putrequest("POST", "/api/generate")
     conn.putheader("Content-Length", str(ui.MAX_BODY + 1))
     conn.endheaders()
