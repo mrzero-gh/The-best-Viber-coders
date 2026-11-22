@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mrzero-gh/The-best-Viber-coders/actions/workflows/ci.yml"><img src="https://github.com/mrzero-gh/The-best-Viber-coders/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-1018%20passed-2F7D4F" alt="1018 тестов">
+  <img src="https://img.shields.io/badge/tests-1020%20passed-2F7D4F" alt="1020 тестов">
   <img src="https://img.shields.io/badge/python-3.11%2B-14171A" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/docker-без%20сети-14171A" alt="Docker без сети">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6B6F73" alt="MIT"></a>
