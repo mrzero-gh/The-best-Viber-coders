@@ -266,12 +266,17 @@ def run_policy_on_episode(ep_dir: Path, policy_name: str) -> Dict[str, Any]:
         inspection_steps = max(0, len(trajectory) - 2)
         eval_res = evaluate({"episode_id": ep_id, "findings": submitted_findings}, truth, ep_id, inspection_steps)
 
+    matcher_res = None
+    if truth and "issues" in truth:
+        matcher_res = match(submitted_findings, truth["issues"])
+
     return {
         "episode_id": ep_id,
         "policy_name": policy_name,
         "trajectory": trajectory,
         "submitted_findings": submitted_findings,
         "eval_result": eval_res,
+        "matcher_result": matcher_res,
     }
 
 
@@ -851,6 +856,20 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   <script>
     // Экранирование данных перед вставкой в HTML: траектории содержат произвольный текст агента
+    function money(minor, cur) {
+      const ep = window.activeEpisode || {};
+      const exps = (ep.manifest && ep.manifest.currency_exponents) || {};
+      const exp = (cur in exps) ? exps[cur] : 2;
+      const n = Number(minor);
+      if (!Number.isFinite(n)) return String(minor);
+      const sign = n < 0 ? '−' : '';
+      const abs = Math.abs(Math.trunc(n));
+      const div = 10 ** exp;
+      const whole = Math.floor(abs / div).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+      const frac = exp > 0 ? ',' + String(abs % div).padStart(exp, '0') : '';
+      return `${sign}${whole}${frac}`;
+    }
+
     function esc(v) {
       return String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
     }
@@ -1038,12 +1057,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           if (doc.line_items) {
             linesHtml = `<table style="margin-top: 8px;">
               <thead><tr><th>Позиция</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr></thead>
-              <tbody>${doc.line_items.map(li => `<tr><td>${esc(li.description)}</td><td class="mono">${esc(li.quantity)}</td><td class="mono">${esc(li.unit_price_minor)}</td><td class="mono">${esc(li.amount_minor)}</td></tr>`).join('')}</tbody>
+              <tbody>${doc.line_items.map(li => `<tr><td>${esc(li.description)}</td><td class="mono">${esc(li.quantity)}</td><td class="mono">${esc(money(li.unit_price_minor, doc.currency))}</td><td class="mono">${esc(money(li.amount_minor, doc.currency))}</td></tr>`).join('')}</tbody>
             </table>`;
           }
           obsContent.innerHTML = `
             <div><strong>Первичный документ:</strong> <code class="mono">${esc(doc.doc_id)}</code> (${esc(doc.doc_type || 'invoice')})</div>
-            <div><strong>Контрагент:</strong> ${esc(doc.entity_id)} | <strong>Сумма:</strong> <span class="mono" style="color: var(--primary); font-weight: bold">${esc(doc.total_minor || doc.amount_minor)} ${esc(doc.currency)}</span></div>
+            <div><strong>Контрагент:</strong> ${esc(doc.entity_id)} | <strong>Сумма:</strong> <span class="mono" style="color: var(--primary); font-weight: bold">${esc(money(doc.total_minor ?? doc.amount_minor, doc.currency))} ${esc(doc.currency)}</span></div>
             ${linesHtml}
           `;
         } else if (obs.tool === 'calculator') {
@@ -1089,7 +1108,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             <span class="finding-type">${esc(typeRu)}</span>
             ${matchBadge}
           </div>
-          <div class="finding-amount">${esc(Number(f.claimed_amount_minor).toLocaleString())} ${esc(f.currency)}</div>
+          <div class="finding-amount">${esc(money(f.claimed_amount_minor, f.currency))} ${esc(f.currency)}</div>
           <div class="finding-meta"><strong>Затронуто:</strong> ${esc((f.affected_ids || []).join(', '))}</div>
           <div class="finding-meta" style="color: var(--text-muted); font-style: italic;">${esc(f.explanation)}</div>
           <div class="pills-container">
@@ -1114,7 +1133,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             <tr>
               <td class="mono"><strong>${esc(iss.issue_id)}</strong></td>
               <td>${esc(TYPE_RU[iss.type] || iss.type)}</td>
-              <td class="mono">${esc(Number(iss.expected_amount_minor).toLocaleString())} ${esc(iss.currency)}</td>
+              <td class="mono">${esc(money(iss.expected_amount_minor, iss.currency))} ${esc(iss.currency)}</td>
               <td class="mono">${esc((iss.affected_ids || []).join(', '))}</td>
               <td class="mono" style="font-size: 11px;">${iss.evidence_sets.map(s => `[${esc(s.join(', '))}]`).join(' OR ')}</td>
             </tr>
@@ -1233,14 +1252,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
         if (res.trajectory) {
           window.activeEpisode.trajectory = res.trajectory;
           window.activeEpisode.submitted_findings = res.submitted_findings;
-          if (res.eval_result && res.eval_result.metrics) {
-            window.activeEpisode.matcher_result = {
-              tp: res.eval_result.metrics.tp,
-              fp: res.eval_result.metrics.fp,
-              fn: res.eval_result.metrics.fn,
-              matches: []
-            };
-          }
+          // сопоставление с эталоном из сервера: без matches все верные находки выглядели как FP
+          window.activeEpisode.matcher_result = res.matcher_result || null;
           renderEpisodeData(window.activeEpisode);
         }
       })
