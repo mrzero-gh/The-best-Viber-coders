@@ -11,6 +11,7 @@
 </p>
 
 <p align="center">
+  <a href="https://drive.google.com/file/d/1-oAy_YiqD40VDy16lo1Mq65MdruDit00/view"><b>▶ Демо-видео (2:14)</b></a> ·
   <a href="docs/DESCRIPTION.md"><b>Описание на 1 страницу</b></a> ·
   <a href="docs/design.md">Записка о дизайне</a> ·
   <a href="docs/judge_adapter.md">Адаптер жюри</a> ·
@@ -189,6 +190,7 @@ python judge_adapter.py                          # самопроверка ад
 
 ## Документация
 
+- [Демо-видео (2:14)](https://drive.google.com/file/d/1-oAy_YiqD40VDy16lo1Mq65MdruDit00/view) — живая запись: интерфейс, агент в эпизоде, жюри, парные проверки, `check --docker`
 - [docs/DESCRIPTION.md](docs/DESCRIPTION.md) — описание проекта на одну страницу
 - [docs/design.md](docs/design.md) — записка о дизайне: блоки жюри, matcher, разбор сбоев, атаки, ответы на 5 вопросов
 - [docs/judge_adapter.md](docs/judge_adapter.md) — адаптер жюри: форматы, коды ошибок, сценарии D01–D20
